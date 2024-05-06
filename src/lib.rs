@@ -1,83 +1,60 @@
-#![warn(missing_docs)]
-
-//! This is the main entry point for the payment
-//! gateway library
-
-use sled::{Db, Tree};
-mod common;
-
-/// Describes the structure of a payment method in
-/// a gateway
-pub struct PaymentMethod {
-    /// Whether or not the method uses native gas token
-    pub is_native: bool,
-    /// The address of the ERC20 token
-    pub token_address: Option<String>,
-    /// N decimals used in the ERC20 token, to save bandwidth
-    /// we hardcode this value instead of dynamically fetching it
-    pub decimals: u64,
-}
-
-pub struct Invoice {
-    pub amount: u64,
-    pub method: PaymentMethod,
-    pub message: Vec<u8>,
-    pub paid_at_timestamp: u64,
-}
-
-pub struct PaymentGateway {
-    pub payment_method: PaymentMethod,
-    pub rpc_url: String,
-    pub poll_interval_seconds: u64,
-    pub callback: fn(Invoice),
-    pub tree: Tree,
-}
-
-impl PaymentGateway {
-    pub fn new(
-        payment_method: PaymentMethod,
-        rpc_url: String,
-        poll_interval_seconds: u64,
-        callback: fn(Invoice),
-        sled_path:String
-    ) -> PaymentGateway{
-        let db = sled::open(sled_path).unwrap();
-        let tree = db.open_tree("invoices").unwrap();
-        PaymentGateway {
-            payment_method:payment_method,
-            rpc_url:rpc_url,
-            poll_interval_seconds:poll_interval_seconds,
-            callback:callback,
-            tree:tree
-        }
-    }
-
-    pub fn get_last_invoice(&self) -> u32 {
-        for el in self.tree.iter() {
-            match el {
-                Ok(value)=>{
-                    let el_bin_key=value.0.to_vec();
-                    let x:u32= el_bin_key.try_into().unwrap();
-                },
-                Err(error)=>{
-                    return 0;
-                }
-            }
-        }
-        return 0;
-    }
-
-    pub fn poll_payments(&self) {}
-
-    pub fn new_invoice(message: Vec<u8>) {}
-}
+mod audit;
+mod poller;
+pub mod gateway;
+pub mod types;
+mod erc20;
 
 #[cfg(test)]
 mod tests {
-    use crate::{Invoice, PaymentGateway, PaymentMethod};
+    use std::{env, fs, path::Path};
 
-    #[test]
-    fn sled_creates_db() {
-        assert_eq!(0, 0);
+    use sled::Error;
+    use web3::types::U256;
+
+    use crate::{gateway::PaymentGateway, types::{Invoice, PaymentMethod}};
+
+    fn setup_test_gateway(db_path: &str) -> PaymentGateway {
+        async fn callback(_invoice: Invoice) {}
+        PaymentGateway::new("https://123.com", 10, callback, db_path)
+    }
+
+
+    fn remove_test_db(db_path: &str) {
+        if Path::new(db_path).exists() {
+            fs::remove_dir_all(db_path).expect("Failed to remove test database");
+        }
+    }
+
+    async fn insert_test_invoice(gateway: &PaymentGateway) -> Result<Invoice, Error> {
+        gateway
+            .new_invoice(
+                U256::one(),
+                PaymentMethod {
+                    is_native: true,
+                    token_address: None,
+                },
+                bincode::serialize("test").unwrap(),
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn assert_invoice_creation() {
+        let gateway = setup_test_gateway("./test-assert-invoice-creation");
+        insert_test_invoice(&gateway).await.unwrap();
+        let database_length = gateway.tree.len();
+        println!("Database length: {}", database_length);
+        assert_eq!(database_length, 1);
+        remove_test_db("./test-assert-invoice-creation");
+    }
+
+    #[tokio::test]
+    async fn assert_valid_address_length() {
+        let gateway = setup_test_gateway("./test-assert-valid-address-length");
+        let invoice = insert_test_invoice(&gateway).await.unwrap();
+        let address_length = invoice.to.len();
+        println!("Address length: {}", address_length);
+        assert_eq!(address_length, 42);
+        remove_test_db("./test-assert-valid-address-length");
     }
 }
