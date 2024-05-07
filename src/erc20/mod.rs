@@ -24,14 +24,20 @@ impl ERC20Token {
             ERC20_ABI.as_bytes(),
         )
         .unwrap();
-        ERC20Token { contract: contract }
+        ERC20Token { contract }
     }
 
     /// Retrieves the token balance of a specified address
     pub async fn get_balance(&self, address: String) -> Result<U256, web3::contract::Error> {
         self.contract
-        .query("balanceOf", Address::from_str(&address).unwrap(), None, Options::default(), None)
-        .await
+            .query(
+                "balanceOf",
+                Address::from_str(&address).unwrap(),
+                None,
+                Options::default(),
+                None,
+            )
+            .await
     }
 }
 
@@ -51,7 +57,8 @@ mod tests {
         );
         let balance = token
             .get_balance("0xC882b111A75C0c657fC507C04FbFcD2cC984F071".to_string())
-            .await.unwrap();
+            .await
+            .unwrap();
         println!("Balance check: {}", balance);
         assert!(balance.ge(&U256::zero()));
     }

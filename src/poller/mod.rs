@@ -2,9 +2,16 @@ use sled::Tree;
 use web3::{transports::Http, types::U256, Web3};
 
 use crate::{
-    audit::log_sync, common::get_unix_time_seconds, db::{delete, get_all}, erc20::ERC20Token, gateway::PaymentGateway, types::Invoice
+    audit::log_sync,
+    common::get_unix_time_seconds,
+    db::{delete, get_all},
+    erc20::ERC20Token,
+    gateway::PaymentGateway,
+    types::Invoice,
 };
 
+/// Checks if a specific token of a specific amount has been received
+/// at a certain address.
 async fn check_if_token_received(
     token: ERC20Token,
     invoice: Invoice,
@@ -54,8 +61,9 @@ async fn check_and_process(web3: Web3<Http>, invoice: Invoice) -> bool {
     }
 }
 
-async fn delete_invoice(tree:&Tree,key:String){
-    match delete(&tree, &key).await {
+async fn delete_invoice(tree: &Tree, key: String) {
+    // Optimistically delete the old invoice.
+    match delete(tree, &key).await {
         Ok(()) => {}
         Err(error) => {
             log_sync(&format!(
@@ -72,20 +80,27 @@ pub async fn poll_payments(gateway: PaymentGateway) {
     loop {
         match get_all::<Invoice>(&gateway.tree).await {
             Ok(all) => {
+                // Loop through all invoices
                 for entry in all {
+                    // If the current time is greater than expiry
                     if get_unix_time_seconds() > entry.1.expires {
+                        // Delete the invoice and continue with the next iteration
                         delete_invoice(&gateway.tree, entry.0).await;
                         continue;
                     }
+                    // Check if the invoice was paid
                     let check_result =
                         check_and_process(gateway.web3.clone(), entry.clone().1).await;
                     if check_result {
+                        // If the invoice was paid, delete it, stand in queue for the
+                        // lock to the callback function.
                         delete_invoice(&gateway.tree, entry.0).await;
-                        let mut invoice=entry.1;
-                        invoice.paid_at_timestamp=get_unix_time_seconds();
-                        let mut lock = gateway.callback.lock().await;
-                        (&mut *lock)(invoice).await;
+                        let mut invoice = entry.1;
+                        invoice.paid_at_timestamp = get_unix_time_seconds();
+                        let lock = gateway.callback.lock().await;
+                        (*lock)(invoice).await; // Execute callback function
                     }
+                    // To prevent rate limitations on certain Web3 RPC's we sleep here for the specified amount.
                     tokio::time::sleep(std::time::Duration::from_millis(
                         gateway.invoice_delay_millis,
                     ))
@@ -99,6 +114,7 @@ pub async fn poll_payments(gateway: PaymentGateway) {
                 ));
             }
         }
+        // To prevent busy idling we sleep here too.
         tokio::time::sleep(std::time::Duration::from_millis(
             gateway.invoice_delay_millis,
         ))

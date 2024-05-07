@@ -1,22 +1,26 @@
 mod audit;
-mod poller;
 mod common;
-pub mod gateway;
-pub mod types;
-mod erc20;
 mod db;
+mod erc20;
+pub mod gateway;
+mod poller;
+pub mod types;
+
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
     use web3::types::U256;
 
-    use crate::{common::SetError, gateway::PaymentGateway, types::{Invoice, PaymentMethod}};
+    use crate::{
+        common::DatabaseError,
+        gateway::PaymentGateway,
+        types::{Invoice, PaymentMethod},
+    };
 
     fn setup_test_gateway(db_path: &str) -> PaymentGateway {
         async fn callback(_invoice: Invoice) {}
-        PaymentGateway::new("https://123.com", 10, callback, db_path,"test".to_string())
+        PaymentGateway::new("https://123.com", 10, callback, db_path, "test".to_string())
     }
-
 
     fn remove_test_db(db_path: &str) {
         if Path::new(db_path).exists() {
@@ -24,7 +28,7 @@ mod tests {
         }
     }
 
-    async fn insert_test_invoice(gateway: &PaymentGateway) -> Result<Invoice, SetError> {
+    async fn insert_test_invoice(gateway: &PaymentGateway) -> Result<Invoice, DatabaseError> {
         gateway
             .new_invoice(
                 U256::one(),
@@ -33,7 +37,7 @@ mod tests {
                     token_address: None,
                 },
                 bincode::serialize("test").unwrap(),
-                3600
+                3600,
             )
             .await
     }
