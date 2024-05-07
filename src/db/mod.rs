@@ -1,6 +1,5 @@
-pub mod errors;
-use self::errors::{DatabaseError, DeleteError, GetError, SetError};
-use crate::{audit::logger::log_sync, types::Serializable};
+use crate::common::{DatabaseError, DeleteError, GetError, SetError};
+use crate::{audit::log_sync, types::Serializable};
 use sled::Tree;
 
 async fn get_from_tree(db: &Tree, key: &str) -> Result<Vec<u8>, DatabaseError> {

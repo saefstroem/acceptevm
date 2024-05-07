@@ -1,3 +1,22 @@
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+/// Retrieve the current unix time in nanoseconds
+pub fn get_unix_time_millis() -> u128 {
+    let now = SystemTime::now();
+    let duration = now.duration_since(UNIX_EPOCH).unwrap_or_else(|_| {
+        println!("Failed computing UNIX timestamp during admin login!");
+        Duration::from_secs(0)
+    });
+    return duration.as_millis();
+}
+/// Retrieve the current unix time in nanoseconds
+pub fn get_unix_time_seconds() -> u64 {
+    let now = SystemTime::now();
+    let duration = now.duration_since(UNIX_EPOCH).unwrap_or_else(|_| {
+        println!("Failed computing UNIX timestamp during admin login!");
+        Duration::from_secs(0)
+    });
+    return duration.as_secs();
+}
 use thiserror::Error;
 
 

@@ -23,8 +23,8 @@ pub struct Invoice {
     pub amount: U256,
     pub method: PaymentMethod,
     pub message: Vec<u8>,
-    pub paid_at_timestamp: u128,
-
+    pub paid_at_timestamp: u64,
+    pub expires:u64
 }
 
 impl Serializable for Invoice {

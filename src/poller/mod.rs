@@ -1,13 +1,8 @@
+use sled::Tree;
 use web3::{transports::Http, types::U256, Web3};
 
 use crate::{
-    audit::logger::log_sync,
-    erc20::ERC20Token,
-    gateway::{
-        db::{delete, get_all},
-        PaymentGateway,
-    },
-    types::Invoice,
+    audit::log_sync, common::get_unix_time_seconds, db::{delete, get_all}, erc20::ERC20Token, gateway::PaymentGateway, types::Invoice
 };
 
 async fn check_if_token_received(
@@ -59,6 +54,18 @@ async fn check_and_process(web3: Web3<Http>, invoice: Invoice) -> bool {
     }
 }
 
+async fn delete_invoice(tree:&Tree,key:String){
+    match delete(&tree, &key).await {
+        Ok(()) => {}
+        Err(error) => {
+            log_sync(&format!(
+                "Could not remove invoice, did not callback: {}",
+                error
+            ));
+        }
+    }
+}
+
 /// Periodically checks if invoices are paid in accordance
 /// to the specified polling interval.
 pub async fn poll_payments(gateway: PaymentGateway) {
@@ -66,22 +73,23 @@ pub async fn poll_payments(gateway: PaymentGateway) {
         match get_all::<Invoice>(&gateway.tree).await {
             Ok(all) => {
                 for entry in all {
+                    if get_unix_time_seconds() > entry.1.expires {
+                        delete_invoice(&gateway.tree, entry.0).await;
+                        continue;
+                    }
                     let check_result =
                         check_and_process(gateway.web3.clone(), entry.clone().1).await;
                     if check_result {
-                        match delete(&gateway.tree, &entry.0).await {
-                            Ok(()) => {
-                                let mut lock = gateway.callback.lock().await;
-                                (&mut *lock)(entry.1).await;
-                            }
-                            Err(error) => {
-                                log_sync(&format!(
-                                    "Could not remove paid invoice, did not callback: {}",
-                                    error
-                                ));
-                            }
-                        }
+                        delete_invoice(&gateway.tree, entry.0).await;
+                        let mut invoice=entry.1;
+                        invoice.paid_at_timestamp=get_unix_time_seconds();
+                        let mut lock = gateway.callback.lock().await;
+                        (&mut *lock)(invoice).await;
                     }
+                    tokio::time::sleep(std::time::Duration::from_millis(
+                        gateway.invoice_delay_millis,
+                    ))
+                    .await;
                 }
             }
             Err(error) => {
@@ -91,8 +99,8 @@ pub async fn poll_payments(gateway: PaymentGateway) {
                 ));
             }
         }
-        tokio::time::sleep(std::time::Duration::from_secs(
-            gateway.poll_interval_seconds,
+        tokio::time::sleep(std::time::Duration::from_millis(
+            gateway.invoice_delay_millis,
         ))
         .await;
     }

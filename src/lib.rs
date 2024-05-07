@@ -1,21 +1,20 @@
 mod audit;
 mod poller;
+mod common;
 pub mod gateway;
 pub mod types;
 mod erc20;
-
+mod db;
 #[cfg(test)]
 mod tests {
-    use std::{env, fs, path::Path};
-
-    use sled::Error;
+    use std::{fs, path::Path};
     use web3::types::U256;
 
-    use crate::{gateway::PaymentGateway, types::{Invoice, PaymentMethod}};
+    use crate::{common::SetError, gateway::PaymentGateway, types::{Invoice, PaymentMethod}};
 
     fn setup_test_gateway(db_path: &str) -> PaymentGateway {
         async fn callback(_invoice: Invoice) {}
-        PaymentGateway::new("https://123.com", 10, callback, db_path)
+        PaymentGateway::new("https://123.com", 10, callback, db_path,"test".to_string())
     }
 
 
@@ -25,7 +24,7 @@ mod tests {
         }
     }
 
-    async fn insert_test_invoice(gateway: &PaymentGateway) -> Result<Invoice, Error> {
+    async fn insert_test_invoice(gateway: &PaymentGateway) -> Result<Invoice, SetError> {
         gateway
             .new_invoice(
                 U256::one(),
@@ -34,6 +33,7 @@ mod tests {
                     token_address: None,
                 },
                 bincode::serialize("test").unwrap(),
+                3600
             )
             .await
     }
