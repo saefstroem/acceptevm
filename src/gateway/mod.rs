@@ -1,10 +1,15 @@
 mod hash;
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{future::Future, pin::Pin, str::FromStr, sync::Arc};
 
-use alloy::signers::wallet::LocalWallet;
+use alloy::{
+    primitives::{Address, U256},
+    providers::{ProviderBuilder, RootProvider},
+    signers::wallet::LocalWallet,
+    transports::http::Http,
+};
+use reqwest::{Client, Url};
 use sled::Tree;
 use tokio::sync::Mutex;
-use web3::{transports::Http, types::U256, Web3};
 
 use crate::{
     common::{get_unix_time_millis, get_unix_time_seconds, DatabaseError},
@@ -18,16 +23,23 @@ use self::hash::hash_now;
 /// ## AcceptEVM
 ///
 ///
-/// The payment gateway is designed to be ran on the main thread, majority of
+/// The payment gateway is designed to be ran on the main thread, all of
 /// the functions are non-blocking asynchronous functions. The underlying polling
-/// mechanism is offloaded using `tokio::spawn``
+/// mechanism is offloaded using `tokio::spawn`.
 #[derive(Clone)]
 pub struct PaymentGateway {
-    pub web3: Web3<Http>,
-    pub invoice_delay_millis: u64,
-    pub callback: AsyncCallback,
+    pub config: PaymentGatewayConfiguration,
     pub tree: Tree,
     pub name: String,
+}
+
+#[derive(Clone)]
+pub struct PaymentGatewayConfiguration {
+    pub provider: RootProvider<Http<Client>>,
+    pub treasury_address: Address,
+    pub invoice_delay_millis: u64,
+    pub callback: AsyncCallback,
+    pub transfer_gas_limit: Option<u128>,
 }
 
 // Type alias for the underlying Web3 type.
@@ -40,19 +52,26 @@ pub type AsyncCallback =
 impl PaymentGateway {
     /// Creates a new payment gateway.
     ///
-    /// - **rpc_url**: the HTTP Rpc url of the EVM network
-    /// - **invoice_delay_millis**: how long to wait before checking the next invoice in milliseconds.
+    /// - `rpc_url`: the HTTP Rpc url of the EVM network
+    /// - `treasury_address`: the address of the treasury for all paid invoices, on this EVM network.
+    /// - `invoice_delay_millis`: how long to wait before checking the next invoice in milliseconds.
     /// This is used to prevent potential rate limits from the node.
-    /// - **callback**: an async function that is called when an invoice is paid.
-    /// - **sled_path**: the path of the sled database where the pending invoices will
+    /// - `callback`: an async function that is called when an invoice is paid.
+    /// - `sled_path`: The path of the sled database where the pending invoices will
     /// be stored. In the event of a crash the invoices are saved and will be
     /// checked on reboot.
+    /// - `name`: A name that describes this gateway. Perhaps the EVM network used?
+    /// - `transfer_gas_limit`: An optional gas limit used when transferring gas from paid invoices to
+    /// the treasury. Useful in case your treasury address is a contract address
+    /// that implements custom functionality for handling incoming gas.
     pub fn new<F, Fut>(
         rpc_url: &str,
+        treasury_address: String,
         invoice_delay_millis: u64,
         callback: F,
         sled_path: &str,
         name: String,
+        transfer_gas_limit: Option<u128>,
     ) -> PaymentGateway
     where
         F: Fn(Invoice) -> Fut + 'static + Send + Sync,
@@ -63,7 +82,7 @@ impl PaymentGateway {
 
         let db = sled::open(sled_path).unwrap();
         let tree = db.open_tree("invoices").unwrap();
-        let http = Http::new(rpc_url).unwrap();
+        let provider = ProviderBuilder::new().on_http(Url::from_str(rpc_url).unwrap());
 
         // Wrap the callback in Arc<Mutex<>> to allow sharing across threads and state mutation
         // We have to create a pinned box to prevent the future from being moved around in heap memory.
@@ -71,10 +90,18 @@ impl PaymentGateway {
             Box::pin(callback(invoice)) as Pin<Box<dyn Future<Output = ()> + Send>>
         }));
 
+        // TODO: When implementing token transfers allow the user to add their gas wallet here.
+
         PaymentGateway {
-            web3: Web3::new(http),
-            invoice_delay_millis,
-            callback,
+            config: PaymentGatewayConfiguration {
+                provider,
+                treasury_address: treasury_address
+                    .parse()
+                    .unwrap_or_else(|_| panic!("Invalid treasury address")),
+                invoice_delay_millis,
+                callback,
+                transfer_gas_limit,
+            },
             tree,
             name,
         }
@@ -120,19 +147,23 @@ impl PaymentGateway {
         message: Vec<u8>,
         expires_in_seconds: u64,
     ) -> Result<Invoice, DatabaseError> {
+        // Generate random wallet
         let signer = LocalWallet::random();
-        let address = signer.address();
         let invoice = Invoice {
-            to: address.to_string(),
+            to: signer.address().to_string(),
+            wallet: signer.to_bytes(),
             amount,
             method,
             message,
             paid_at_timestamp: 0,
             expires: get_unix_time_seconds() + expires_in_seconds,
+            receipt: None,
         };
+
+        // Create collision-safe key for the map
         let seed = format!("{}{}", signer.address(), get_unix_time_millis());
         let invoice_id = hash_now(seed);
-
+        // Save the invoice in db.
         set::<Invoice>(&self.tree, &invoice_id, invoice.clone()).await?;
         Ok(invoice)
     }

@@ -4,12 +4,14 @@ mod db;
 mod erc20;
 pub mod gateway;
 mod poller;
+mod transfers;
 pub mod types;
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
-    use web3::types::U256;
+    use std::{fs, path::Path, str::FromStr};
+
+    use alloy::primitives::U256;
 
     use crate::{
         common::DatabaseError,
@@ -19,7 +21,15 @@ mod tests {
 
     fn setup_test_gateway(db_path: &str) -> PaymentGateway {
         async fn callback(_invoice: Invoice) {}
-        PaymentGateway::new("https://123.com", 10, callback, db_path, "test".to_string())
+        PaymentGateway::new(
+            "https://123.com",
+            "0x0".to_string(),
+            10,
+            callback,
+            db_path,
+            "test".to_string(),
+            Some(21000),
+        )
     }
 
     fn remove_test_db(db_path: &str) {
@@ -31,7 +41,7 @@ mod tests {
     async fn insert_test_invoice(gateway: &PaymentGateway) -> Result<Invoice, DatabaseError> {
         gateway
             .new_invoice(
-                U256::one(),
+                U256::from_str("0").unwrap(),
                 PaymentMethod {
                     is_native: true,
                     token_address: None,
