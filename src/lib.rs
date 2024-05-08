@@ -23,7 +23,7 @@ mod tests {
         async fn callback(_invoice: Invoice) {}
         PaymentGateway::new(
             "https://123.com",
-            "0x0".to_string(),
+            "0xdac17f958d2ee523a2206206994597c13d831ec7".to_string(),
             10,
             callback,
             db_path,
