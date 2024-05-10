@@ -19,8 +19,6 @@ pub trait Serializable {
 /// a gateway
 #[derive(Clone, Deserialize, Serialize)]
 pub struct PaymentMethod {
-    /// Whether or not the method uses native gas token
-    pub is_native: bool,
     /// The address of the ERC20 token
     pub token_address: Option<String>,
 }

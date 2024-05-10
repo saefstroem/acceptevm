@@ -59,7 +59,6 @@ mod tests {
             .new_invoice(
                 U256::from_str("0").unwrap(),
                 PaymentMethod {
-                    is_native: true,
                     token_address: None,
                 },
                 bincode::serialize("test").unwrap(),
