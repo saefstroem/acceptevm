@@ -133,8 +133,7 @@ pub async fn poll_payments(gateway: PaymentGateway) {
                         delete_invoice(&gateway.tree, entry.0).await;
                         let mut invoice = entry.1;
                         invoice.paid_at_timestamp = get_unix_time_seconds();
-                        let lock = gateway.config.callback.lock().await;
-                        (*lock)(invoice).await; // Execute callback function
+                        (gateway.config.callback)(invoice).await;// Execute callback function
                     }
                     // To prevent rate limitations on certain Web3 RPC's we sleep here for the specified amount.
                     tokio::time::sleep(std::time::Duration::from_millis(

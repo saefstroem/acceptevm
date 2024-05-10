@@ -27,12 +27,12 @@ impl ERC20Token {
 
     /// Retrieves the token balance of a specified address
     pub async fn get_balance(&self, address: String) -> Result<Uint<256, 4>, Error> {
-        let IERC20::balanceOfReturn { _0 } = self
+        let IERC20::balanceOfReturn { _0: balance } = self
             .contract
             .balanceOf(address.parse().unwrap())
             .call()
             .await?;
-        Ok(_0)
+        Ok(balance)
     }
 }
 
