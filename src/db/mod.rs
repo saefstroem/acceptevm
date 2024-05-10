@@ -21,16 +21,10 @@ async fn get_all_from_tree(db: &Tree) -> Result<Vec<(Vec<u8>, Vec<u8>)>, Databas
 
 /// Retrieve the last added item to the tree
 async fn get_last_from_tree(db: &Tree) -> Result<(Vec<u8>, Vec<u8>), DatabaseError> {
-    let last_value = db.last()?;
+    db.last()?
+        .map(|(key, value)| (key.to_vec(), value.to_vec()))
+        .ok_or(DatabaseError::NotFound)
 
-    match last_value {
-        Some(tuple) => {
-            let el_bin_key = tuple.0.to_vec();
-            let el_bin_value = tuple.1.to_vec();
-            Ok((el_bin_key, el_bin_value))
-        }
-        None => Err(DatabaseError::NotFound),
-    }
 }
 
 /// Wrapper for retrieving the last added item to the tree
