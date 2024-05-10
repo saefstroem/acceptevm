@@ -16,7 +16,6 @@ use log4rs::{
 };
 use reqwest::{Client, Url};
 use sled::Tree;
-use tokio::sync::Mutex;
 
 use crate::{
     common::{get_unix_time_millis, get_unix_time_seconds, DatabaseError},
@@ -54,7 +53,7 @@ pub type Wei = U256;
 
 // Type alias for the invoice callback function
 pub type AsyncCallback =
-    Arc<Mutex<dyn Fn(Invoice) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>>;
+    Arc<dyn Fn(Invoice) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 impl PaymentGateway {
     /// Creates a new payment gateway.
@@ -93,9 +92,9 @@ impl PaymentGateway {
 
         // Wrap the callback in Arc<Mutex<>> to allow sharing across threads and state mutation
         // We have to create a pinned box to prevent the future from being moved around in heap memory.
-        let callback = Arc::new(Mutex::new(move |invoice: Invoice| {
+        let callback = Arc::new(move |invoice: Invoice| {
             Box::pin(callback(invoice)) as Pin<Box<dyn Future<Output = ()> + Send>>
-        }));
+        });
 
         // Setup logging
         let logfile = FileAppender::builder()
