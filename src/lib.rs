@@ -18,8 +18,25 @@ mod tests {
         types::{Invoice, PaymentMethod},
     };
 
+    struct Foo {
+        bar: std::sync::Mutex<i64>,
+    }
+
+    impl Foo {
+        async fn increase(&self) {
+            *self.bar.lock().unwrap() += 1;
+        }
+    }
+
     fn setup_test_gateway(db_path: &str) -> PaymentGateway {
-        async fn callback(_invoice: Invoice) {}
+        let foo = std::sync::Arc::new(Foo {
+            bar: Default::default(),
+        });
+        let foo_clone = foo.clone();
+        let callback = move |_| {
+            let foo = foo_clone.clone();
+            async move { foo.increase().await }
+        };
         PaymentGateway::new(
             "https://123.com",
             "0xdac17f958d2ee523a2206206994597c13d831ec7".to_string(),
