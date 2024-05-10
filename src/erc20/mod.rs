@@ -20,7 +20,7 @@ pub struct ERC20Token {
 impl ERC20Token {
     /// Creates a new instance of an ERC20 token. This is just a wrapper
     /// function to simplify the interactions with contracts.
-    pub fn new(provider: RootProvider<Http<Client>>, token_address: String) -> ERC20Token {
+    pub fn new(provider: RootProvider<Http<Client>>, token_address: &str) -> ERC20Token {
         let contract = IERC20::new(token_address.parse().unwrap(), provider);
         ERC20Token { contract }
     }
@@ -52,7 +52,7 @@ mod tests {
 
         let token = ERC20Token::new(
             provider,
-            "0x2170ed0880ac9a755fd29b2688956bd959f933f8".to_string(),
+            "0x2170ed0880ac9a755fd29b2688956bd959f933f8",
         );
         let balance = token
             .get_balance(&"0xC882b111A75C0c657fC507C04FbFcD2cC984F071".to_string())

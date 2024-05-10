@@ -89,8 +89,8 @@ async fn set_to_tree(db: &Tree, key: &str, bin: Vec<u8>) -> Result<(), DatabaseE
 }
 
 /// Wrapper for setting a value to a tree
-pub async fn set<T: Serializable>(tree: &Tree, key: &str, data: T) -> Result<(), DatabaseError> {
-    let binary_data = T::to_bin(&data).map_err(|error| {
+pub async fn set<T: Serializable>(tree: &Tree, key: &str, data: &T) -> Result<(), DatabaseError> {
+    let binary_data = T::to_bin(data).map_err(|error| {
         log::error!("Db Interaction Error: {}", error);
         DatabaseError::Serialize
     })?;

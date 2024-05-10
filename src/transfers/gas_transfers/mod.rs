@@ -40,7 +40,7 @@ async fn send_transaction(
 /// Crea
 async fn create_transaction(
     gateway_config: PaymentGatewayConfiguration,
-    invoice: Invoice,
+    invoice: &Invoice,
     chain_id: u64,
     gas_price: u128,
     signer: Wallet<SigningKey>,
@@ -71,9 +71,9 @@ async fn create_transaction(
 /// Transfers gas from a paid invoice to a specified treasury address
 pub async fn transfer_gas_to_treasury(
     gateway: PaymentGateway,
-    invoice: Invoice,
+    invoice: &Invoice,
 ) -> Result<TransactionReceipt, TransferError> {
-    let signer = LocalWallet::from_bytes(&invoice.clone().wallet).unwrap();
+    let signer = LocalWallet::from_bytes(&invoice.wallet).unwrap();
     let chain_id = get_chain_id(gateway.config.provider.clone()).await?;
     let gas_price = get_gas_price(gateway.config.provider.clone()).await?;
 
