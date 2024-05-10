@@ -26,13 +26,13 @@ impl ERC20Token {
     }
 
     /// Retrieves the token balance of a specified address
-    pub async fn get_balance(&self, address: String) -> Result<Uint<256, 4>, Error> {
-        let IERC20::balanceOfReturn { _0 } = self
+    pub async fn get_balance(&self, address: &str) -> Result<Uint<256, 4>, Error> {
+        let IERC20::balanceOfReturn { _0: balance } = self
             .contract
             .balanceOf(address.parse().unwrap())
             .call()
             .await?;
-        Ok(_0)
+        Ok(balance)
     }
 }
 
@@ -55,7 +55,7 @@ mod tests {
             "0x2170ed0880ac9a755fd29b2688956bd959f933f8".to_string(),
         );
         let balance = token
-            .get_balance("0xC882b111A75C0c657fC507C04FbFcD2cC984F071".to_string())
+            .get_balance(&"0xC882b111A75C0c657fC507C04FbFcD2cC984F071".to_string())
             .await
             .unwrap();
         println!("Balance check: {}", balance);

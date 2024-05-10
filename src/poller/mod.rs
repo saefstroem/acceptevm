@@ -1,5 +1,4 @@
 use crate::{
-    audit::log_sync,
     common::get_unix_time_seconds,
     db::{delete, get_all},
     erc20::ERC20Token,
@@ -7,7 +6,6 @@ use crate::{
     transfers::{errors::TransferError, gas_transfers::transfer_gas_to_treasury},
     types::Invoice,
 };
-
 use alloy::{
     primitives::Uint,
     providers::{Provider, RootProvider},
@@ -21,9 +19,9 @@ use sled::Tree;
 /// at a certain address.
 async fn check_if_token_received(
     token: ERC20Token,
-    invoice: Invoice,
+    invoice: &Invoice,
 ) -> Result<bool, alloy::contract::Error> {
-    let balance_of_recipient = token.get_balance(invoice.to).await?;
+    let balance_of_recipient = token.get_balance(&invoice.to).await?;
     if balance_of_recipient.ge(&invoice.amount) {
         return Ok(true);
     }
@@ -32,8 +30,8 @@ async fn check_if_token_received(
 
 /// Retrieves the gas token balance of the specified address on the specified web3 instance
 async fn get_native_balance(
-    provider: RootProvider<Http<Client>>,
-    address: String,
+    provider: &RootProvider<Http<Client>>,
+    address: &str,
 ) -> Result<Uint<256, 4>, alloy::contract::Error> {
     Ok(provider
         .get_balance(address.parse().unwrap(), alloy::eips::BlockId::latest())
@@ -42,10 +40,10 @@ async fn get_native_balance(
 
 /// Used to check if the invoice recipient has received enough money to cover the invoice
 async fn check_if_native_received(
-    provider: RootProvider<Http<Client>>,
-    invoice: Invoice,
+    provider: &RootProvider<Http<Client>>,
+    invoice: &Invoice,
 ) -> Result<bool, alloy::contract::Error> {
-    let balance_of_recipient = get_native_balance(provider, invoice.to).await?;
+    let balance_of_recipient = get_native_balance(provider, &invoice.to).await?;
     if balance_of_recipient.ge(&invoice.amount) {
         return Ok(true);
     }
@@ -54,22 +52,22 @@ async fn check_if_native_received(
 
 /// A function that branches control flow depending on the invoice shall
 /// be paid by an ERC20-compatible token or the native gas token on the network
-async fn check_and_process(provider: RootProvider<Http<Client>>, invoice: Invoice) -> bool {
+async fn check_and_process(provider: RootProvider<Http<Client>>, invoice: &Invoice) -> bool {
     match invoice.clone().method.token_address {
         Some(address) => {
             let token = ERC20Token::new(provider, address);
             match check_if_token_received(token, invoice).await {
                 Ok(result) => result,
                 Err(error) => {
-                    log_sync(&format!("Failed to check balance: {}", error));
+                    log::error!("Failed to check balance: {}", error);
                     false
                 }
             }
         }
-        None => match check_if_native_received(provider, invoice).await {
+        None => match check_if_native_received(&provider, invoice).await {
             Ok(result) => result,
             Err(error) => {
-                log_sync(&format!("Failed to check balance: {}", error));
+                log::error!("Failed to check balance: {}", error);
                 false
             }
         },
@@ -81,10 +79,7 @@ async fn delete_invoice(tree: &Tree, key: String) {
     match delete(tree, &key).await {
         Ok(()) => {}
         Err(error) => {
-            log_sync(&format!(
-                "Could not remove invoice, did not callback: {}",
-                error
-            ));
+            log::error!("Could not remove invoice, did not callback: {}", error);
         }
     }
 }
@@ -112,7 +107,7 @@ pub async fn poll_payments(gateway: PaymentGateway) {
                     }
                     // Check if the invoice was paid
                     let check_result =
-                        check_and_process(gateway.config.provider.clone(), entry.clone().1).await;
+                        check_and_process(gateway.config.provider.clone(), &entry.1).await;
 
                     if check_result {
                         // Attempt transfer to treasury
@@ -121,10 +116,10 @@ pub async fn poll_payments(gateway: PaymentGateway) {
                                 entry.1.receipt = Some(receipt);
                             }
                             Err(error) => {
-                                log_sync(&format!(
+                                log::error!(
                                     "Could not transfer paid invoice to treasury: {}",
                                     error
-                                ));
+                                );
                             }
                         }
 
@@ -144,10 +139,7 @@ pub async fn poll_payments(gateway: PaymentGateway) {
                 }
             }
             Err(error) => {
-                log_sync(&format!(
-                    "Could not get all invoices, did not callback: {}",
-                    error
-                ));
+                log::error!("Could not get all invoices, did not callback: {}", error);
             }
         }
         // To prevent busy idling we sleep here too.
@@ -173,8 +165,8 @@ mod tests {
         let provider = ProviderBuilder::new()
             .on_http(Url::from_str("https://bsc-dataseed1.binance.org/").unwrap());
         let balance = get_native_balance(
-            provider,
-            "0x2170ed0880ac9a755fd29b2688956bd959f933f8".to_string(),
+            &provider,
+            &"0x2170ed0880ac9a755fd29b2688956bd959f933f8".to_string(),
         )
         .await
         .unwrap();

@@ -7,6 +7,13 @@ use alloy::{
     signers::wallet::LocalWallet,
     transports::http::Http,
 };
+use log::LevelFilter;
+use log4rs::{
+    append::file::FileAppender,
+    config::{Appender, Root},
+    encode::pattern::PatternEncoder,
+    Config,
+};
 use reqwest::{Client, Url};
 use sled::Tree;
 use tokio::sync::Mutex;
@@ -15,7 +22,7 @@ use crate::{
     common::{get_unix_time_millis, get_unix_time_seconds, DatabaseError},
     db::{get, get_all, get_last, set},
     poller::poll_payments,
-    types::{Invoice, PaymentMethod},
+    types::{self, Invoice, PaymentMethod},
 };
 
 use self::hash::hash_now;
@@ -90,6 +97,23 @@ impl PaymentGateway {
             Box::pin(callback(invoice)) as Pin<Box<dyn Future<Output = ()> + Send>>
         }));
 
+        // Setup logging
+        let logfile = FileAppender::builder()
+            .encoder(Box::new(PatternEncoder::new("{l} - {m}\n")))
+            .build("./acceptevm.log")
+            .unwrap();
+
+        let config = Config::builder()
+            .appender(Appender::builder().build("logfile", Box::new(logfile)))
+            .build(Root::builder().appender("logfile").build(LevelFilter::Info))
+            .unwrap();
+
+        // Try to initialize and catch error silently if already initialized
+        // during tests this make this function throw error
+        if log4rs::init_config(config).is_err() {
+            println!("Logger already initialized.");
+        }
+
         // TODO: When implementing token transfers allow the user to add their gas wallet here.
 
         PaymentGateway {
@@ -151,7 +175,9 @@ impl PaymentGateway {
         let signer = LocalWallet::random();
         let invoice = Invoice {
             to: signer.address().to_string(),
-            wallet: signer.to_bytes(),
+            wallet: types::ZeroizedB256 {
+                inner: signer.to_bytes(),
+            },
             amount,
             method,
             message,

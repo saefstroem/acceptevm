@@ -1,22 +1,16 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 /// Retrieve the current unix time in nanoseconds
 pub fn get_unix_time_millis() -> u128 {
     let now = SystemTime::now();
-    let duration = now.duration_since(UNIX_EPOCH).unwrap_or_else(|_| {
-        println!("Failed computing UNIX timestamp during admin login!");
-        Duration::from_secs(0)
-    });
+    let duration = now.duration_since(UNIX_EPOCH).unwrap_or_default();
     duration.as_millis()
 }
 /// Retrieve the current unix time in nanoseconds
 pub fn get_unix_time_seconds() -> u64 {
     let now = SystemTime::now();
-    let duration = now.duration_since(UNIX_EPOCH).unwrap_or_else(|_| {
-        println!("Failed computing UNIX timestamp during admin login!");
-        Duration::from_secs(0)
-    });
+    let duration = now.duration_since(UNIX_EPOCH).unwrap_or_default();
     duration.as_secs()
 }
 
@@ -36,4 +30,6 @@ pub enum DatabaseError {
     Serialize,
     #[error("Could not delete from database")]
     NoDelete,
+    #[error("Database internal error: {0}")]
+    SledError(#[from] sled::Error),
 }

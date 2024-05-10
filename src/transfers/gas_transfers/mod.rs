@@ -18,7 +18,6 @@ use reqwest::Client;
 use std::ops::Mul;
 
 use crate::{
-    audit::log_sync,
     gateway::{PaymentGateway, PaymentGatewayConfiguration},
     types::Invoice,
 };
@@ -74,7 +73,7 @@ pub async fn transfer_gas_to_treasury(
     gateway: PaymentGateway,
     invoice: Invoice,
 ) -> Result<TransactionReceipt, TransferError> {
-    let signer = LocalWallet::from_bytes(&invoice.wallet).unwrap();
+    let signer = LocalWallet::from_bytes(&invoice.clone().wallet).unwrap();
     let chain_id = get_chain_id(gateway.config.provider.clone()).await?;
     let gas_price = get_gas_price(gateway.config.provider.clone()).await?;
 
@@ -86,13 +85,13 @@ pub async fn transfer_gas_to_treasury(
             match send_transaction(tx_encoded, gateway.config.provider).await {
                 Ok(receipt) => Ok(receipt),
                 Err(error) => {
-                    log_sync(&format!("Could not send transaction: {}", error));
+                    log::error!("Could not send transaction: {}", error);
                     Err(TransferError::SendTransaction)
                 }
             }
         }
         Err(error) => {
-            log_sync(&format!("Could not create transaction: {}", error));
+            log::error!("Could not send transaction: {}", error);
             Err(TransferError::CreateTransaction)
         }
     }
