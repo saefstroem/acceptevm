@@ -53,24 +53,18 @@ async fn check_if_native_received(
 /// A function that branches control flow depending on the invoice shall
 /// be paid by an ERC20-compatible token or the native gas token on the network
 async fn check_and_process(provider: RootProvider<Http<Client>>, invoice: &Invoice) -> bool {
-    match invoice.clone().method.token_address {
+    match &invoice.method.token_address {
         Some(address) => {
             let token = ERC20Token::new(provider, address);
-            match check_if_token_received(token, invoice).await {
-                Ok(result) => result,
-                Err(error) => {
-                    log::error!("Failed to check balance: {}", error);
-                    false
-                }
-            }
-        }
-        None => match check_if_native_received(&provider, invoice).await {
-            Ok(result) => result,
-            Err(error) => {
+            check_if_token_received(token, invoice).await.unwrap_or_else(|error| {
                 log::error!("Failed to check balance: {}", error);
                 false
-            }
-        },
+            })
+        }
+        None => check_if_native_received(&provider, invoice).await.unwrap_or_else(|error| {
+            log::error!("Failed to check balance: {}", error);
+            false
+        }),
     }
 }
 
@@ -86,7 +80,7 @@ async fn delete_invoice(tree: &Tree, key: String) {
 
 async fn transfer_to_treasury(
     gateway: PaymentGateway,
-    invoice: Invoice,
+    invoice: &Invoice,
 ) -> Result<TransactionReceipt, TransferError> {
     transfer_gas_to_treasury(gateway, invoice).await
 }
@@ -98,22 +92,22 @@ pub async fn poll_payments(gateway: PaymentGateway) {
         match get_all::<Invoice>(&gateway.tree).await {
             Ok(all) => {
                 // Loop through all invoices
-                for mut entry in all {
+                for (key, mut invoice) in all {
                     // If the current time is greater than expiry
-                    if get_unix_time_seconds() > entry.1.expires {
+                    if get_unix_time_seconds() > invoice.expires {
                         // Delete the invoice and continue with the next iteration
-                        delete_invoice(&gateway.tree, entry.0).await;
+                        delete_invoice(&gateway.tree, key).await;
                         continue;
                     }
                     // Check if the invoice was paid
                     let check_result =
-                        check_and_process(gateway.config.provider.clone(), &entry.1).await;
+                        check_and_process(gateway.config.provider.clone(), &invoice).await;
 
                     if check_result {
                         // Attempt transfer to treasury
-                        match transfer_to_treasury(gateway.clone(), entry.1.clone()).await {
+                        match transfer_to_treasury(gateway.clone(), &invoice).await {
                             Ok(receipt) => {
-                                entry.1.receipt = Some(receipt);
+                                invoice.receipt = Some(receipt);
                             }
                             Err(error) => {
                                 log::error!(
@@ -125,8 +119,7 @@ pub async fn poll_payments(gateway: PaymentGateway) {
 
                         // If the transfer_to_treasury invoice was paid, delete it, stand in queue for the
                         // lock to the callback function.
-                        delete_invoice(&gateway.tree, entry.0).await;
-                        let mut invoice = entry.1;
+                        delete_invoice(&gateway.tree, key).await;
                         invoice.paid_at_timestamp = get_unix_time_seconds();
                         (gateway.config.callback)(invoice).await;// Execute callback function
                     }

@@ -189,7 +189,7 @@ impl PaymentGateway {
         let seed = format!("{}{}", signer.address(), get_unix_time_millis());
         let invoice_id = hash_now(seed);
         // Save the invoice in db.
-        set::<Invoice>(&self.tree, &invoice_id, invoice.clone()).await?;
+        set::<Invoice>(&self.tree, &invoice_id, &invoice).await?;
         Ok(invoice)
     }
 }
