@@ -1,10 +1,13 @@
 mod errors;
+use std::ops::{Deref, DerefMut};
+
 use self::errors::SerializableError;
 use alloy::{
     primitives::{B256, U256},
     rpc::types::eth::TransactionReceipt,
 };
 use serde::{Deserialize, Serialize};
+use zeroize::ZeroizeOnDrop;
 pub trait Serializable {
     fn to_bin(&self) -> Result<Vec<u8>, Box<bincode::ErrorKind>>;
     fn from_bin(data: Vec<u8>) -> Result<Self, SerializableError>
@@ -22,12 +25,32 @@ pub struct PaymentMethod {
     pub token_address: Option<String>,
 }
 
+#[derive(ZeroizeOnDrop, Clone, Deserialize, Serialize)]
+pub struct ZeroizedB256 {
+    pub inner: B256,
+}
+
+// To automatically dereference into B256 type for restoring wallet
+impl Deref for ZeroizedB256 {
+    type Target = B256;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DerefMut for ZeroizedB256 {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Invoice {
     /// Recipient address
     pub to: String,
     /// Recipient instance
-    pub wallet: B256,
+    pub wallet: ZeroizedB256,
     /// Amount requested
     pub amount: U256,
     /// Method used for payment

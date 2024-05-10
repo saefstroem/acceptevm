@@ -7,8 +7,6 @@ use alloy::{
 };
 use reqwest::Client;
 
-use crate::audit::log_sync;
-
 use self::errors::TransferError;
 
 // Retrieves the chain id from the provider.
@@ -16,7 +14,7 @@ async fn get_chain_id(provider: RootProvider<Http<Client>>) -> Result<u64, Trans
     match provider.get_chain_id().await {
         Ok(chain_id) => Ok(chain_id),
         Err(error) => {
-            log_sync(&format!("Could not get chain id: {}", error));
+            log::error!("Could not get chain id: {}", error);
             Err(TransferError::ChainId)
         }
     }
@@ -27,10 +25,10 @@ async fn get_gas_price(provider: RootProvider<Http<Client>>) -> Result<u128, Tra
     match provider.get_gas_price().await {
         Ok(gas_price) => Ok(gas_price),
         Err(error) => {
-            log_sync(&format!(
+            log::error!(
                 "Could not get gas price (maybe chain uses EIP-1559?): {}",
                 error
-            ));
+            );
             Err(TransferError::ChainId)
         }
     }
