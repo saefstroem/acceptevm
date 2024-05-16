@@ -1,6 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
-use ethers::types::{Address, U256};
+
+use ethers::types::{Address, TransactionReceipt, U256};
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 
@@ -17,7 +18,7 @@ pub struct ZeroizedVec {
     pub inner: Vec<u8>,
 }
 
-// To automatically dereference into Vec<u8> type for restoring wallet
+// To automatically dereference into Vec type for restoring wallet
 impl Deref for ZeroizedVec {
     type Target = Vec<u8>;
 
@@ -48,6 +49,6 @@ pub struct Invoice {
     pub paid_at_timestamp: u64,
     /// Invoice expiry time
     pub expires: u64,
-    pub hash: Option<String>,
+    pub receipt: Option<TransactionReceipt>,
 }
 

@@ -10,8 +10,8 @@ pub mod types;
 mod tests {
     use std::{fs, path::Path, str::FromStr};
 
-    use alloy::primitives::U256;
     use async_std::channel::unbounded;
+    use ethers::types::U256;
 
     use crate::{
         common::DatabaseError,
@@ -29,8 +29,8 @@ mod tests {
             10,
             reflector,
             db_path,
-            "test".to_string(),
-            Some(21000),
+            10,
+            Some(21000)
         )
     }
 
@@ -67,7 +67,9 @@ mod tests {
     async fn assert_valid_address_length() {
         let gateway = setup_test_gateway("./test-assert-valid-address-length");
         let invoice = insert_test_invoice(&gateway).await.unwrap();
-        let address_length = invoice.to.len();
+        let address=format!("{:?}", invoice.to);
+        let address_length = address.len();
+        println!("Address: {}", address);
         println!("Address length: {}", address_length);
         assert_eq!(address_length, 42);
         remove_test_db("./test-assert-valid-address-length");

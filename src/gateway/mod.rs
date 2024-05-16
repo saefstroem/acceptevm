@@ -1,15 +1,10 @@
 mod hash;
-use std::{future::Future, pin::Pin, str::FromStr, sync::Arc};
+use std::{future::Future, pin::Pin, sync::Arc};
 
-use alloy::{
-    primitives::{Address, U256},
-    providers::{ProviderBuilder, RootProvider},
-    signers::wallet::LocalWallet,
-    transports::http::Http,
-};
 
 use async_std::channel::Sender;
-use reqwest::{Client, Url};
+use ethers::{providers::{Http, Provider}, signers::LocalWallet, types::{Address, U256}};
+use ethers::signers::Signer;
 use sled::Tree;
 
 use crate::{
@@ -31,16 +26,17 @@ use self::hash::hash_now;
 pub struct PaymentGateway {
     pub config: PaymentGatewayConfiguration,
     pub tree: Tree,
-    pub name: String,
 }
 
 #[derive(Clone)]
 pub struct PaymentGatewayConfiguration {
-    pub provider: RootProvider<Http<Client>>,
+    pub provider: Provider<Http>,
     pub treasury_address: Address,
     pub invoice_delay_millis: u64,
     pub reflector: Reflector,
+    pub min_confirmations: usize,
     pub transfer_gas_limit: Option<u128>,
+
 }
 
 /// ## Reflector
@@ -104,6 +100,7 @@ impl PaymentGateway {
     ///        reflector,
     ///        "./your-wanted-db-path",
     ///        "test".to_string(),
+    ///        10,
     ///        Some(21000),
     /// );
     /// ```
@@ -115,17 +112,18 @@ impl PaymentGateway {
         invoice_delay_millis: u64,
         reflector: Reflector,
         sled_path: &str,
-        name: String,
+        min_confirmations: usize,
         transfer_gas_limit: Option<u128>,
     ) -> PaymentGateway {
         let db = sled::open(sled_path).unwrap();
         let tree = db.open_tree("invoices").unwrap();
-        let provider = ProviderBuilder::new().on_http(Url::from_str(rpc_url).unwrap());
+        let provider = Provider::try_from(rpc_url).expect("Invalid RPC URL");
 
         // TODO: When implementing token transfers allow the user to add their gas wallet here.
 
         PaymentGateway {
             config: PaymentGatewayConfiguration {
+                min_confirmations,
                 provider,
                 treasury_address: treasury_address
                     .parse()
@@ -135,7 +133,6 @@ impl PaymentGateway {
                 transfer_gas_limit,
             },
             tree,
-            name,
         }
     }
 
@@ -180,18 +177,18 @@ impl PaymentGateway {
         expires_in_seconds: u64,
     ) -> Result<Invoice, DatabaseError> {
         // Generate random wallet
-        let signer = LocalWallet::random();
+        let signer = LocalWallet::new(&mut ethers::core::rand::thread_rng());
         let invoice = Invoice {
-            to: signer.address().to_string(),
-            wallet: types::ZeroizedB256 {
-                inner: signer.to_bytes(),
+            to: signer.address(),
+            wallet: types::ZeroizedVec {
+                inner: signer.signer().to_bytes().to_vec(),
             },
             amount,
             method,
             message,
             paid_at_timestamp: 0,
             expires: get_unix_time_seconds() + expires_in_seconds,
-            receipt: None,
+            hash: None,
         };
 
         // Create collision-safe key for the map
