@@ -1,19 +1,11 @@
-mod errors;
 use std::ops::{Deref, DerefMut};
 
-use self::errors::SerializableError;
 use alloy::{
     primitives::{B256, U256},
     rpc::types::eth::TransactionReceipt,
 };
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
-pub trait Serializable {
-    fn to_bin(&self) -> Result<Vec<u8>, Box<bincode::ErrorKind>>;
-    fn from_bin(data: Vec<u8>) -> Result<Self, SerializableError>
-    where
-        Self: Sized;
-}
 
 /// Describes the structure of a payment method in
 /// a gateway
@@ -62,14 +54,3 @@ pub struct Invoice {
     pub receipt: Option<TransactionReceipt>,
 }
 
-impl Serializable for Invoice {
-    /// Serializes invoice to bytes
-    fn to_bin(&self) -> Result<Vec<u8>, Box<bincode::ErrorKind>> {
-        bincode::serialize(&self)
-    }
-
-    /// Deserializes invoice from bytes
-    fn from_bin(data: Vec<u8>) -> Result<Self, SerializableError> {
-        bincode::deserialize(&data).map_err(|_| SerializableError::Deserialize)
-    }
-}

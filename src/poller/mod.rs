@@ -12,6 +12,7 @@ use alloy::{
     rpc::types::eth::TransactionReceipt,
     transports::http::Http,
 };
+use crate::gateway::Reflector::Sender;
 use reqwest::Client;
 use sled::Tree;
 
@@ -70,11 +71,8 @@ async fn check_and_process(provider: RootProvider<Http<Client>>, invoice: &Invoi
 
 async fn delete_invoice(tree: &Tree, key: String) {
     // Optimistically delete the old invoice.
-    match delete(tree, &key).await {
-        Ok(()) => {}
-        Err(error) => {
-            log::error!("Could not remove invoice, did not callback: {}", error);
-        }
+    if let Err(delete_error) = delete(tree, &key).await {
+        log::error!("Could not remove invoice: {}", delete_error);
     }
 }
 
@@ -89,7 +87,7 @@ async fn transfer_to_treasury(
 /// to the specified polling interval.
 pub async fn poll_payments(gateway: PaymentGateway) {
     loop {
-        match get_all::<Invoice>(&gateway.tree).await {
+        match get_all(&gateway.tree).await {
             Ok(all) => {
                 // Loop through all invoices
                 for (key, mut invoice) in all {
@@ -121,7 +119,14 @@ pub async fn poll_payments(gateway: PaymentGateway) {
                         // lock to the callback function.
                         delete_invoice(&gateway.tree, key).await;
                         invoice.paid_at_timestamp = get_unix_time_seconds();
-                        (gateway.config.callback)(invoice).await;// Execute callback function
+                        match gateway.config.reflector {
+                            Sender(ref sender) => {
+                                // Attempt to send the PriceData through the channel.
+                                if let Err(error) = sender.send(invoice).await {
+                                    log::error!("Failed sending data: {}", error);
+                                }
+                            }
+                        }
                     }
                     // To prevent rate limitations on certain Web3 RPC's we sleep here for the specified amount.
                     tokio::time::sleep(std::time::Duration::from_millis(
