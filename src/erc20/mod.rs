@@ -1,37 +1,26 @@
-use alloy::{
-    contract::Error, primitives::Uint, providers::RootProvider, sol, transports::http::Http,
-};
-use reqwest::Client;
 
-use self::IERC20::IERC20Instance;
+use std::sync::Arc;
 
-sol!(
-    #[allow(missing_docs)]
-    #[sol(rpc)]
-    IERC20,
-    "src/abi/IERC20.json"
-);
+use ethers::{abi::Abi, contract::{Contract, ContractError}, providers::{Http, Provider}, types::{Address, U256}};
 
 #[derive(Clone)]
 pub struct ERC20Token {
-    pub contract: IERC20Instance<Http<Client>, RootProvider<Http<Client>>>,
+    pub contract: Contract<Provider<Http>>,
 }
 
 impl ERC20Token {
     /// Creates a new instance of an ERC20 token. This is just a wrapper
     /// function to simplify the interactions with contracts.
-    pub fn new(provider: RootProvider<Http<Client>>, token_address: &str) -> ERC20Token {
-        let contract = IERC20::new(token_address.parse().unwrap(), provider);
+    pub fn new(provider: Provider<Http>, token_address: Address) -> ERC20Token {
+        let abi:Abi=serde_json::from_str(include_str!("IERC20.json")).unwrap();
+        let contract = Contract::new(token_address, abi, Arc::new(provider));
         ERC20Token { contract }
     }
 
     /// Retrieves the token balance of a specified address
-    pub async fn get_balance(&self, address: &str) -> Result<Uint<256, 4>, Error> {
-        let IERC20::balanceOfReturn { _0: balance } = self
-            .contract
-            .balanceOf(address.parse().unwrap())
-            .call()
-            .await?;
+    pub async fn get_balance(&self, address: Address) -> Result<U256, ContractError<Provider<Http>>> {
+        let balance=self.contract.method::<Address,U256>("balanceOf", address).unwrap()
+        .call().await?;
         Ok(balance)
     }
 }
@@ -41,21 +30,19 @@ mod tests {
 
     use std::str::FromStr;
 
-    use alloy::{primitives::U256, providers::ProviderBuilder};
-    use reqwest::Url;
+    use ethers::{providers::Provider, types::{Address, U256}};
 
     use crate::erc20::ERC20Token;
     #[tokio::test]
     async fn valid_balance() {
-        let provider = ProviderBuilder::new()
-            .on_http(Url::from_str("https://bsc-dataseed1.binance.org/").unwrap());
+        let provider = Provider::try_from("https://bsc-dataseed1.binance.org/").unwrap();
 
         let token = ERC20Token::new(
             provider,
-            "0x2170ed0880ac9a755fd29b2688956bd959f933f8",
+            "0x2170ed0880ac9a755fd29b2688956bd959f933f8".parse::<Address>().unwrap(),
         );
         let balance = token
-            .get_balance(&"0xC882b111A75C0c657fC507C04FbFcD2cC984F071".to_string())
+            .get_balance("0xC882b111A75C0c657fC507C04FbFcD2cC984F071".parse::<Address>().unwrap())
             .await
             .unwrap();
         println!("Balance check: {}", balance);

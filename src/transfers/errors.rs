@@ -6,6 +6,7 @@ pub enum TransferError {
     ChainId,
     #[error("Could not transmit transaction")]
     SendTransaction,
-    #[error("Could not create transaction")]
-    CreateTransaction,
+
+    #[error("Transaction not confirmed")]
+    TransactionNotConfirmed,
 }

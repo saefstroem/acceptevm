@@ -10,41 +10,27 @@ pub mod types;
 mod tests {
     use std::{fs, path::Path, str::FromStr};
 
-    use alloy::primitives::U256;
+    use async_std::channel::unbounded;
+    use ethers::types::U256;
 
     use crate::{
         common::DatabaseError,
-        gateway::PaymentGateway,
+        gateway::{PaymentGateway, Reflector},
         types::{Invoice, PaymentMethod},
     };
 
-    struct Foo {
-        bar: std::sync::Mutex<i64>,
-    }
-
-    impl Foo {
-        async fn increase(&self) {
-            *self.bar.lock().unwrap() += 1;
-        }
-    }
-
     fn setup_test_gateway(db_path: &str) -> PaymentGateway {
-        let foo = std::sync::Arc::new(Foo {
-            bar: Default::default(),
-        });
-        let foo_clone = foo.clone();
-        let callback = move |_| {
-            let foo = foo_clone.clone();
-            async move { foo.increase().await }
-        };
+        let (sender, _receiver) = unbounded();
+        let reflector = Reflector::Sender(sender);
+
         PaymentGateway::new(
             "https://123.com",
             "0xdac17f958d2ee523a2206206994597c13d831ec7".to_string(),
             10,
-            callback,
+            reflector,
             db_path,
-            "test".to_string(),
-            Some(21000),
+            10,
+            Some(21000)
         )
     }
 
@@ -81,9 +67,12 @@ mod tests {
     async fn assert_valid_address_length() {
         let gateway = setup_test_gateway("./test-assert-valid-address-length");
         let invoice = insert_test_invoice(&gateway).await.unwrap();
-        let address_length = invoice.to.len();
+        let address=format!("{:?}", invoice.to);
+        let address_length = address.len();
+        println!("Address: {}", address);
         println!("Address length: {}", address_length);
         assert_eq!(address_length, 42);
         remove_test_db("./test-assert-valid-address-length");
     }
+    
 }

@@ -1,22 +1,6 @@
-use alloy::{
-    consensus::TxEnvelope,
-    network::{
-        eip2718::Encodable2718, Ethereum, EthereumSigner, TransactionBuilder,
-        TransactionBuilderError,
-    },
-    primitives::U256,
-    providers::{Provider, RootProvider},
-    rpc::types::eth::{TransactionReceipt, TransactionRequest},
-    signers::{
-        k256::ecdsa::SigningKey,
-        wallet::{LocalWallet, Wallet},
-    },
-    transports::{http::Http, RpcError, TransportErrorKind},
-};
 
-use reqwest::Client;
+use ethers::{ middleware::SignerMiddleware, providers::Middleware, signers::LocalWallet, types::{TransactionRequest, U256}};
 use std::ops::Mul;
-
 use crate::{
     gateway::{PaymentGateway, PaymentGatewayConfiguration},
     types::Invoice,
@@ -24,75 +8,68 @@ use crate::{
 
 use super::{errors::TransferError, get_chain_id, get_gas_price};
 
-/// Wrapper function for alloy's send transaction method to minimize
-/// the number of nested match statements.
-async fn send_transaction(
-    transaction: Vec<u8>,
-    provider: RootProvider<Http<Client>>,
-) -> Result<TransactionReceipt, RpcError<TransportErrorKind>> {
-    provider
-        .send_raw_transaction(&transaction)
-        .await?
-        .get_receipt()
-        .await
-}
 
-/// Crea
+/// Creates a transaction to transfer gas from a paid invoice to a specified treasury address
 async fn create_transaction(
     gateway_config: PaymentGatewayConfiguration,
     invoice: &Invoice,
-    chain_id: u64,
-    gas_price: u128,
-    signer: Wallet<SigningKey>,
-) -> Result<TxEnvelope, TransactionBuilderError<Ethereum>> {
-    let ethereum_signer: EthereumSigner = signer.into();
+    chain_id: U256,
+    gas_price: U256,
+) -> TransactionRequest {
 
     // Use specified gas limit or fallback
     let gas_limit = gateway_config.transfer_gas_limit.unwrap_or(21000);
 
     // Maximum cost of transaction
-    let max_cost = gas_limit.mul(gas_price);
+    let max_cost = gas_limit.mul(gas_price.as_u128());
 
     // Estimated gas left after transfer
     let value = invoice.amount.saturating_sub(U256::from(max_cost));
 
     TransactionRequest::default()
-        .from(invoice.to.parse().unwrap())
+        .from(invoice.to)
         .to(gateway_config.treasury_address)
-        .with_nonce(0)
-        .with_chain_id(chain_id)
-        .with_gas_limit(gas_limit)
+        .nonce(0)
+        .chain_id(chain_id.as_u64())
+        .gas(gas_limit)
         .value(value)
-        .with_gas_price(gas_price)
-        .build(&ethereum_signer)
-        .await
+        .gas_price(gas_price)   
 }
+
+
 
 /// Transfers gas from a paid invoice to a specified treasury address
 pub async fn transfer_gas_to_treasury(
     gateway: PaymentGateway,
     invoice: &Invoice,
-) -> Result<TransactionReceipt, TransferError> {
+) -> Result<String, TransferError> {
     let signer = LocalWallet::from_bytes(&invoice.wallet).unwrap();
     let chain_id = get_chain_id(gateway.config.provider.clone()).await?;
     let gas_price = get_gas_price(gateway.config.provider.clone()).await?;
 
-    // Create a transaction
-    match create_transaction(gateway.config.clone(), invoice, chain_id, gas_price, signer).await {
-        Ok(tx_envelope) => {
-            let tx_encoded = tx_envelope.encoded_2718();
-            // Send transaction and await receipt
-            match send_transaction(tx_encoded, gateway.config.provider).await {
-                Ok(receipt) => Ok(receipt),
-                Err(error) => {
-                    log::error!("Could not send transaction: {}", error);
-                    Err(TransferError::SendTransaction)
-                }
-            }
-        }
-        Err(error) => {
-            log::error!("Could not send transaction: {}", error);
-            Err(TransferError::CreateTransaction)
-        }
-    }
+    let transaction = create_transaction(gateway.config.clone(), invoice, chain_id, gas_price).await;
+    let client = SignerMiddleware::new(gateway.config.provider, signer);
+
+    let pending_tx = client
+        .send_transaction(transaction, None)
+        .await
+        .map_err(|e| {
+            log::error!("Could not send transaction: {}", e);
+            TransferError::SendTransaction
+        })?;
+
+    let receipt = pending_tx
+        .confirmations(gateway.config.min_confirmations)
+        .await  
+        .map_err(|e| {
+            log::error!("Error waiting for confirmations: {}", e);
+            TransferError::TransactionNotConfirmed
+        })?
+        .ok_or_else(|| {
+            log::error!("Transaction not confirmed");
+            TransferError::TransactionNotConfirmed
+        })?;
+
+    log::info!("Transaction confirmed: {:?}", receipt.transaction_hash);
+    Ok(format!("{:?}", receipt.transaction_hash))
 }

@@ -1,17 +1,13 @@
 pub mod errors;
 pub mod gas_transfers;
 
-use alloy::{
-    providers::{Provider, RootProvider},
-    transports::http::Http,
-};
-use reqwest::Client;
 
+use ethers::{providers::{Http, Middleware, Provider}, types::U256};
 use self::errors::TransferError;
 
 // Retrieves the chain id from the provider.
-async fn get_chain_id(provider: RootProvider<Http<Client>>) -> Result<u64, TransferError> {
-    match provider.get_chain_id().await {
+async fn get_chain_id(provider: Provider<Http>) -> Result<U256, TransferError> {
+    match provider.get_chainid().await {
         Ok(chain_id) => Ok(chain_id),
         Err(error) => {
             log::error!("Could not get chain id: {}", error);
@@ -21,7 +17,7 @@ async fn get_chain_id(provider: RootProvider<Http<Client>>) -> Result<u64, Trans
 }
 
 /// Retrieves the current gas price from a provider
-async fn get_gas_price(provider: RootProvider<Http<Client>>) -> Result<u128, TransferError> {
+async fn get_gas_price(provider: Provider<Http>) -> Result<U256, TransferError> {
     match provider.get_gas_price().await {
         Ok(gas_price) => Ok(gas_price),
         Err(error) => {

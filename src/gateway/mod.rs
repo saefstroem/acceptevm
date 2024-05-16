@@ -1,20 +1,10 @@
 mod hash;
-use std::{future::Future, pin::Pin, str::FromStr, sync::Arc};
+use std::{future::Future, pin::Pin, sync::Arc};
 
-use alloy::{
-    primitives::{Address, U256},
-    providers::{ProviderBuilder, RootProvider},
-    signers::wallet::LocalWallet,
-    transports::http::Http,
-};
-use log::LevelFilter;
-use log4rs::{
-    append::file::FileAppender,
-    config::{Appender, Root},
-    encode::pattern::PatternEncoder,
-    Config,
-};
-use reqwest::{Client, Url};
+
+use async_std::channel::Sender;
+use ethers::{providers::{Http, Provider}, signers::LocalWallet, types::{Address, U256}};
+use ethers::signers::Signer;
 use sled::Tree;
 
 use crate::{
@@ -36,16 +26,39 @@ use self::hash::hash_now;
 pub struct PaymentGateway {
     pub config: PaymentGatewayConfiguration,
     pub tree: Tree,
-    pub name: String,
 }
 
 #[derive(Clone)]
 pub struct PaymentGatewayConfiguration {
-    pub provider: RootProvider<Http<Client>>,
+    pub provider: Provider<Http>,
     pub treasury_address: Address,
     pub invoice_delay_millis: u64,
-    pub callback: AsyncCallback,
+    pub reflector: Reflector,
+    pub min_confirmations: usize,
     pub transfer_gas_limit: Option<u128>,
+
+}
+
+/// ## Reflector
+/// The reflector allows your payment gateway to be used in a more flexible way.
+///
+/// In its current state you can pass a Sender from an unbound async-std channel
+/// which you can create by doing:
+/// ```rust
+/// use async_std::channel::unbounded;
+/// use acceptevm::gateway::Reflector;
+///
+/// let (sender, receiver) = unbounded();
+///
+/// let reflector=Reflector::Sender(sender);
+/// ```
+///
+/// You may clone the receiver as many times as you want but do not use the sender
+/// for anything other than passing it to the try_new() method.
+#[derive(Clone)]
+pub enum Reflector {
+    /// A sender from async-std
+    Sender(Sender<Invoice>),
 }
 
 // Type alias for the underlying Web3 type.
@@ -62,7 +75,9 @@ impl PaymentGateway {
     /// - `treasury_address`: the address of the treasury for all paid invoices, on this EVM network.
     /// - `invoice_delay_millis`: how long to wait before checking the next invoice in milliseconds.
     /// This is used to prevent potential rate limits from the node.
-    /// - `callback`: an async function that is called when an invoice is paid.
+    /// - `reflector`: The reflector is an enum that allows you to receive the paid invoices.
+    /// At the moment, the only reflector available is the `Sender` from the async-std channel.
+    /// This means that you will need to create a channel and pass the sender as the reflector.
     /// - `sled_path`: The path of the sled database where the pending invoices will
     /// be stored. In the event of a crash the invoices are saved and will be
     /// checked on reboot.
@@ -70,69 +85,59 @@ impl PaymentGateway {
     /// - `transfer_gas_limit`: An optional gas limit used when transferring gas from paid invoices to
     /// the treasury. Useful in case your treasury address is a contract address
     /// that implements custom functionality for handling incoming gas.
-    pub fn new<F, Fut>(
+    ///
+    /// Example:
+    /// ```rust
+    /// use acceptevm::gateway::{PaymentGateway, Reflector};
+    /// use async_std::channel::unbounded;
+    /// let (sender, _receiver) = unbounded();
+    /// let reflector = Reflector::Sender(sender);
+    ///
+    /// PaymentGateway::new(
+    ///        "https://123.com",
+    ///        "0xdac17f958d2ee523a2206206994597c13d831ec7".to_string(),
+    ///        10,
+    ///        reflector,
+    ///        "./your-wanted-db-path",
+    ///        10,
+    ///        Some(21000),
+    /// );
+    /// ```
+
+
+    pub fn new(
         rpc_url: &str,
         treasury_address: String,
         invoice_delay_millis: u64,
-        callback: F,
+        reflector: Reflector,
         sled_path: &str,
-        name: String,
+        min_confirmations: usize,
         transfer_gas_limit: Option<u128>,
-    ) -> PaymentGateway
-    where
-        F: Fn(Invoice) -> Fut + 'static + Send + Sync,
-        Fut: Future<Output = ()> + 'static + Send,
-    {
-        // Send allows ownership to be transferred across threads
-        // Sync allows references to be shared
-
+    ) -> PaymentGateway {
         let db = sled::open(sled_path).unwrap();
         let tree = db.open_tree("invoices").unwrap();
-        let provider = ProviderBuilder::new().on_http(Url::from_str(rpc_url).unwrap());
-
-        // Wrap the callback in Arc<Mutex<>> to allow sharing across threads and state mutation
-        // We have to create a pinned box to prevent the future from being moved around in heap memory.
-        let callback = Arc::new(move |invoice: Invoice| {
-            Box::pin(callback(invoice)) as Pin<Box<dyn Future<Output = ()> + Send>>
-        });
-
-        // Setup logging
-        let logfile = FileAppender::builder()
-            .encoder(Box::new(PatternEncoder::new("{l} - {m}\n")))
-            .build("./acceptevm.log")
-            .unwrap();
-
-        let config = Config::builder()
-            .appender(Appender::builder().build("logfile", Box::new(logfile)))
-            .build(Root::builder().appender("logfile").build(LevelFilter::Info))
-            .unwrap();
-
-        // Try to initialize and catch error silently if already initialized
-        // during tests this make this function throw error
-        if log4rs::init_config(config).is_err() {
-            println!("Logger already initialized.");
-        }
+        let provider = Provider::try_from(rpc_url).expect("Invalid RPC URL");
 
         // TODO: When implementing token transfers allow the user to add their gas wallet here.
 
         PaymentGateway {
             config: PaymentGatewayConfiguration {
+                min_confirmations,
                 provider,
                 treasury_address: treasury_address
                     .parse()
                     .unwrap_or_else(|_| panic!("Invalid treasury address")),
                 invoice_delay_millis,
-                callback,
+                reflector,
                 transfer_gas_limit,
             },
             tree,
-            name,
         }
     }
 
     /// Retrieves the last invoice
     pub async fn get_last_invoice(&self) -> Result<(String, Invoice), DatabaseError> {
-        get_last::<Invoice>(&self.tree).await
+        get_last(&self.tree).await
     }
 
     /// Retrieves all invoices in the form of a tuple: String,Invoice
@@ -140,12 +145,12 @@ impl PaymentGateway {
     /// and the second part is the invoice. The key is a SHA256 hash of the
     /// creation timestamp and the recipient address.
     pub async fn get_all_invoices(&self) -> Result<Vec<(String, Invoice)>, DatabaseError> {
-        get_all::<Invoice>(&self.tree).await
+        get_all(&self.tree).await
     }
 
     /// Retrieve an invoice from the payment gateway
     pub async fn get_invoice(&self, key: String) -> Result<Invoice, DatabaseError> {
-        get::<Invoice>(&self.tree, &key).await
+        get(&self.tree, &key).await
     }
 
     /// Spawns an asynchronous task that checks all the pending invoices
@@ -171,25 +176,25 @@ impl PaymentGateway {
         expires_in_seconds: u64,
     ) -> Result<Invoice, DatabaseError> {
         // Generate random wallet
-        let signer = LocalWallet::random();
+        let signer = LocalWallet::new(&mut ethers::core::rand::thread_rng());
         let invoice = Invoice {
-            to: signer.address().to_string(),
-            wallet: types::ZeroizedB256 {
-                inner: signer.to_bytes(),
+            to: signer.address(),
+            wallet: types::ZeroizedVec {
+                inner: signer.signer().to_bytes().to_vec(),
             },
             amount,
             method,
             message,
             paid_at_timestamp: 0,
             expires: get_unix_time_seconds() + expires_in_seconds,
-            receipt: None,
+            hash: None,
         };
 
         // Create collision-safe key for the map
         let seed = format!("{}{}", signer.address(), get_unix_time_millis());
         let invoice_id = hash_now(seed);
         // Save the invoice in db.
-        set::<Invoice>(&self.tree, &invoice_id, &invoice).await?;
+        set(&self.tree, &invoice_id, &invoice).await?;
         Ok(invoice)
     }
 }
