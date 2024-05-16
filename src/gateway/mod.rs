@@ -99,7 +99,6 @@ impl PaymentGateway {
     ///        10,
     ///        reflector,
     ///        "./your-wanted-db-path",
-    ///        "test".to_string(),
     ///        10,
     ///        Some(21000),
     /// );
