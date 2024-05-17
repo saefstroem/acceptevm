@@ -174,7 +174,7 @@ impl PaymentGateway {
         method: PaymentMethod,
         message: Vec<u8>,
         expires_in_seconds: u64,
-    ) -> Result<Invoice, DatabaseError> {
+    ) -> Result<(String,Invoice), DatabaseError> {
         // Generate random wallet
         let signer = LocalWallet::new(&mut ethers::core::rand::thread_rng());
         let invoice = Invoice {
@@ -195,6 +195,6 @@ impl PaymentGateway {
         let invoice_id = hash_now(seed);
         // Save the invoice in db.
         set(&self.tree, &invoice_id, &invoice).await?;
-        Ok(invoice)
+        Ok((invoice_id,invoice))
     }
 }
