@@ -40,7 +40,7 @@ mod tests {
         }
     }
 
-    async fn insert_test_invoice(gateway: &PaymentGateway) -> Result<Invoice, DatabaseError> {
+    async fn insert_test_invoice(gateway: &PaymentGateway) -> Result<(String,Invoice), DatabaseError> {
         gateway
             .new_invoice(
                 U256::from_str("0").unwrap(),
@@ -67,7 +67,7 @@ mod tests {
     async fn assert_valid_address_length() {
         let gateway = setup_test_gateway("./test-assert-valid-address-length");
         let invoice = insert_test_invoice(&gateway).await.unwrap();
-        let address=format!("{:?}", invoice.to);
+        let address=format!("{:?}", invoice.1.to);
         let address_length = address.len();
         println!("Address: {}", address);
         println!("Address length: {}", address_length);
