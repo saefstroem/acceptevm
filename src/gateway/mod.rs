@@ -36,7 +36,7 @@ pub struct PaymentGatewayConfiguration {
     pub reflector: Reflector,
     pub min_confirmations: usize,
     pub transfer_gas_limit: Option<u128>,
-
+    pub use_eip1559: bool,
 }
 
 /// ## Reflector

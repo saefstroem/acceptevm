@@ -6,6 +6,8 @@ mod poller;
 mod transfers;
 pub mod types;
 
+pub use common::DatabaseError;
+
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path, str::FromStr};
