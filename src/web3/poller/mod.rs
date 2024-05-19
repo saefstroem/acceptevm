@@ -1,15 +1,13 @@
-use crate::{
-    common::get_unix_time_seconds,
-    db::{delete, get_all},
-    erc20::ERC20Token,
-    gateway::PaymentGateway,
-    transfers::{errors::TransferError, gas_transfers::transfer_gas_to_treasury},
-    types::Invoice,
-};
-use ethers::{contract::ContractError, providers::ProviderError, types::{Address, BlockNumber::Latest}};
+
+use ethers::contract::ContractError;
+use ethers::providers::{Http, Provider};
 use crate::gateway::Reflector::Sender;
-use ethers::{providers::{Http, Middleware, Provider}, types::{BlockId, U256}};
-use sled::Tree;
+use crate::gateway::{get_unix_time_seconds, PaymentGateway};
+use crate::invoice::Invoice;
+
+use super::erc20::ERC20Token;
+use super::transfers::gas_transfers::transfer_gas_to_treasury;
+use super::{get_native_balance, TransferError};
 
 /// Checks if a specific token of a specific amount has been received
 /// at a certain address.
@@ -24,21 +22,11 @@ async fn check_if_token_received(
     Ok(false)
 }
 
-/// Retrieves the gas token balance of the specified address on the specified web3 instance
-async fn get_native_balance(
-    provider: &Provider<Http>,
-    address: &Address,
-) -> Result<U256, ProviderError> {
-    provider
-        .get_balance(*address, Some(BlockId::Number(Latest)))
-        .await
-}
-
 /// Used to check if the invoice recipient has received enough money to cover the invoice
 async fn check_if_native_received(
     provider: Provider<Http>,
     invoice: &Invoice,
-) -> Result<bool, ContractError<Provider<Http>>> {
+) -> Result<bool, TransferError> {
     let balance_of_recipient = get_native_balance(&provider, &invoice.to).await?;
     if balance_of_recipient.ge(&invoice.amount) {
         return Ok(true);
@@ -49,7 +37,7 @@ async fn check_if_native_received(
 /// A function that branches control flow depending on the invoice shall
 /// be paid by an ERC20-compatible token or the native gas token on the network
 async fn check_and_process(provider: Provider<Http>, invoice: &Invoice) -> bool {
-    match &invoice.method.token_address {
+    match &invoice.token_address {
         Some(address) => {
             let token = ERC20Token::new(provider, *address);
             check_if_token_received(token, invoice).await.unwrap_or_else(|error| {
@@ -64,12 +52,6 @@ async fn check_and_process(provider: Provider<Http>, invoice: &Invoice) -> bool 
     }
 }
 
-async fn delete_invoice(tree: &Tree, key: String) {
-    // Optimistically delete the old invoice.
-    if let Err(delete_error) = delete(tree, &key).await {
-        log::error!("Could not remove invoice: {}", delete_error);
-    }
-}
 
 async fn transfer_to_treasury(
     gateway: PaymentGateway,
@@ -81,15 +63,17 @@ async fn transfer_to_treasury(
 /// Periodically checks if invoices are paid in accordance
 /// to the specified polling interval.
 pub async fn poll_payments(gateway: PaymentGateway) {
+    log::info!("Starting polling payments");
     loop {
-        match get_all(&gateway.tree).await {
+        log::info!("Pending invoices: {:?}", gateway.invoices.len());
+        match gateway.get_all_invoices().await {
             Ok(all) => {
                 // Loop through all invoices
                 for (key, mut invoice) in all {
                     // If the current time is greater than expiry
                     if get_unix_time_seconds() > invoice.expires {
                         // Delete the invoice and continue with the next iteration
-                        delete_invoice(&gateway.tree, key).await;
+                        gateway.invoices.remove(&key);
                         continue;
                     }
                     // Check if the invoice was paid
@@ -97,6 +81,7 @@ pub async fn poll_payments(gateway: PaymentGateway) {
                         check_and_process(gateway.config.provider.clone(), &invoice).await;
 
                     if check_result {
+                        log::info!("Starting transfer to treasury");
                         // Attempt transfer to treasury
                         match transfer_to_treasury(gateway.clone(), &invoice).await {
                             Ok(receipt) => {
@@ -112,20 +97,20 @@ pub async fn poll_payments(gateway: PaymentGateway) {
 
                         // If the transfer_to_treasury invoice was paid, delete it, stand in queue for the
                         // lock to the callback function.
-                        delete_invoice(&gateway.tree, key).await;
+                        gateway.invoices.remove(&key);
                         invoice.paid_at_timestamp = get_unix_time_seconds();
                         match gateway.config.reflector {
                             Sender(ref sender) => {
                                 // Attempt to send the PriceData through the channel.
-                                if let Err(error) = sender.send(invoice).await {
+                                if let Err(error) = sender.send((key,invoice)).await {
                                     log::error!("Failed sending data: {}", error);
                                 }
                             }
                         }
                     }
                     // To prevent rate limitations on certain Web3 RPC's we sleep here for the specified amount.
-                    tokio::time::sleep(std::time::Duration::from_millis(
-                        gateway.config.invoice_delay_millis,
+                    tokio::time::sleep(std::time::Duration::from_secs(
+                        gateway.config.poller_delay_seconds,
                     ))
                     .await;
                 }
@@ -135,8 +120,8 @@ pub async fn poll_payments(gateway: PaymentGateway) {
             }
         }
         // To prevent busy idling we sleep here too.
-        tokio::time::sleep(std::time::Duration::from_millis(
-            gateway.config.invoice_delay_millis,
+        tokio::time::sleep(std::time::Duration::from_secs(
+            gateway.config.poller_delay_seconds,
         ))
         .await;
     }
@@ -147,7 +132,8 @@ mod tests {
 
     use ethers::{providers::Provider, types::{Address, U256}};
 
-    use crate::poller::get_native_balance;
+    use crate::web3::get_native_balance;
+
 
     #[tokio::test]
     async fn valid_balance() {

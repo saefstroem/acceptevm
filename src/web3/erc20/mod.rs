@@ -32,7 +32,7 @@ mod tests {
 
     use ethers::{providers::Provider, types::{Address, U256}};
 
-    use crate::erc20::ERC20Token;
+    use crate::web3::erc20::ERC20Token;
     #[tokio::test]
     async fn valid_balance() {
         let provider = Provider::try_from("https://bsc-dataseed1.binance.org/").unwrap();

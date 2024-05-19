@@ -1,5 +1,27 @@
-use crate::{common::DatabaseError, types::Invoice};
 use sled::Tree;
+use thiserror::Error;
+use crate::invoice::Invoice;
+
+#[derive(Error, Debug)]
+pub enum DatabaseError {
+    #[error("No matches found")]
+    NotFound,
+    #[error("Could not get from database")]
+    Get,
+    #[error("Could not set to database")]
+    Set,
+    #[error("Could not communicate with database")]
+    Communicate,
+    #[error("Could not deserialize binary data")]
+    Deserialize,
+    #[error("Could not serialize binary data")]
+    Serialize,
+    #[error("Could not delete from database")]
+    NoDelete,
+    #[error("Database internal error: {0}")]
+    SledError(#[from] sled::Error),
+}
+
 
 /// Retrieve a value by key from a tree.
 async fn get_from_tree(db: &Tree, key: &str) -> Result<Vec<u8>, DatabaseError> {
