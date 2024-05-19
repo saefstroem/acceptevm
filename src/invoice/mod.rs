@@ -4,15 +4,9 @@ use ethers::types::{Address, U256};
 use serde::{Deserialize, Serialize};
 use zeroize::ZeroizeOnDrop;
 
-/// Describes the structure of a payment method in
-/// a gateway
-#[derive(Clone, Deserialize, Serialize)]
-pub struct PaymentMethod {
-    /// The address of the ERC20 token
-    pub token_address: Option<Address>,
-}
-
-#[derive(ZeroizeOnDrop, Clone, Deserialize, Serialize)]
+/// ## DANGER: Private Key Data is contained in this struct
+/// Share it with caution
+#[derive(ZeroizeOnDrop, Clone, Deserialize, Serialize,Debug)]
 pub struct ZeroizedVec {
     pub inner: Vec<u8>,
 }
@@ -32,16 +26,16 @@ impl DerefMut for ZeroizedVec {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize,Debug)]
 pub struct Invoice {
     /// Recipient address
     pub to: Address,
-    /// Recipient instance
+    /// Contains the keys to restore the wallet
     pub wallet: ZeroizedVec,
     /// Amount requested
     pub amount: U256,
     /// Method used for payment
-    pub method: PaymentMethod,
+    pub token_address: Option<Address>,
     /// Arbitrary message attached to the invoice
     pub message: Vec<u8>,
     /// Timestamp at which the invoice was paid
@@ -50,4 +44,3 @@ pub struct Invoice {
     pub expires: u64,
     pub hash: Option<String>,
 }
-
