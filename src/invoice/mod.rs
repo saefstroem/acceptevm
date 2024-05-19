@@ -6,7 +6,7 @@ use zeroize::ZeroizeOnDrop;
 
 /// ## DANGER: Private Key Data is contained in this struct
 /// Share it with caution
-#[derive(ZeroizeOnDrop, Clone, Deserialize, Serialize,Debug)]
+#[derive(ZeroizeOnDrop, Clone, Deserialize, Serialize, Debug)]
 pub struct ZeroizedVec {
     pub inner: Vec<u8>,
 }
@@ -26,7 +26,7 @@ impl DerefMut for ZeroizedVec {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize,Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Invoice {
     /// Recipient address
     pub to: Address,

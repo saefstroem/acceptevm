@@ -11,14 +11,13 @@ use async_std::channel::Sender;
 use crossbeam_skiplist::SkipMap;
 use ethers::signers::Signer;
 
-
 pub type Provider<T> = ethers::providers::Provider<T>;
 pub type Http = ethers::providers::Http;
 pub type Address = ethers::types::Address;
 pub type U256 = ethers::types::U256;
 pub type Units = ethers::utils::Units;
-pub type LocalWallet=ethers::signers::LocalWallet;
-pub type SecretKey=ethers::core::k256::SecretKey;
+pub type LocalWallet = ethers::signers::LocalWallet;
+pub type SecretKey = ethers::core::k256::SecretKey;
 pub use ethers::utils::hex;
 
 use crate::{
@@ -26,10 +25,7 @@ use crate::{
     web3::poller::poll_payments,
 };
 
-use self::{
-    errors::GatewayError,
-    hash::hash_now,
-};
+use self::{errors::GatewayError, hash::hash_now};
 
 /// Retrieve the current unix time in nanoseconds
 pub fn get_unix_time_millis() -> u128 {
@@ -51,14 +47,14 @@ pub fn get_unix_time_seconds() -> u64 {
 /// mechanism is offloaded using `tokio::spawn`. All invoices are stored
 /// in-memory for now using a SkipMap. Therefore, it is your responsibility to
 /// implement persistency for the invoices if you deem that this is required.
-/// 
+///
 /// The payment gateway creates addresses and waits for payments to be made to these addresses.
 /// When a deposit is made to the address, the gateway will check the balance and if the balance is
 /// greater than or equal to the amount specified in the invoice, the gateway will consider the invoice
 /// paid and will transfer the funds to the treasury address. However, due to the uncertainty of the blockchain
-/// this transfer could fail. It is therefore important to check if the hash is present in the invoice when 
-/// receiving the invoice from the receiver. 
-/// 
+/// this transfer could fail. It is therefore important to check if the hash is present in the invoice when
+/// receiving the invoice from the receiver.
+///
 /// If the hash is present, the invoice was successfully transferred to the treasury. If the hash is not present,
 /// the invoice was not transferred to the treasury, and you should handle this case accordingly. The invoice will
 /// always contain the wallet that was used to create the invoice. This wallet is a LocalWallet from the ethers crate which
@@ -66,14 +62,14 @@ pub fn get_unix_time_seconds() -> u64 {
 /// or manual recovery. The `to_string()` method of the invoice will convert all invoice data into a readable format
 /// that can be stored in a CSV file or any other format that you prefer. The wallet will be transpiled into a private key
 /// compatible with wallets like Metamask and TrustWallet.
-/// 
-/// 
+///
+///
 /// Example:
 /// ```rust
 /// use acceptevm::gateway::{Provider,PaymentGateway,TransactionType,PaymentGatewayConfiguration, Reflector,Address};
 /// use async_std::channel::unbounded;
 /// use acceptevm::gateway::Wei;
-/// 
+///
 /// #[tokio::main]
 /// async fn main(){
 ///     let (sender, receiver) = unbounded();
@@ -86,7 +82,7 @@ pub fn get_unix_time_seconds() -> u64 {
 ///             treasury_address: "0xdac17f958d2ee523a2206206994597c13d831ec7".parse::<Address>().unwrap(),
 ///             min_confirmations: 10,
 ///             reflector,
-///             invoice_delay_seconds: 10,
+///             poller_delay_seconds: 10,
 ///             transaction_type,
 ///             eip1559_estimation_retry_max: 3,
 ///             eip1559_estimation_retry_delay_seconds: 10,   
@@ -95,12 +91,12 @@ pub fn get_unix_time_seconds() -> u64 {
 ///     
 ///     // Add new invoice and serialize string data with bincode
 ///     let (invoice_id, invoice) = gateway.new_invoice(
-///         Wei::from(100), 
-///         None, 
-///         bincode::serialize("Invoice details").expect("Could not serialize invoice details"), 
+///         Wei::from(100),
+///         None,
+///         bincode::serialize("Invoice details").expect("Could not serialize invoice details"),
 ///         3600
 ///     ).await.unwrap();
-/// 
+///
 ///     // Get the invoice from the gateway
 ///    let invoice = gateway.get_invoice(&invoice_id).await.unwrap();
 ///     
@@ -115,12 +111,12 @@ pub fn get_unix_time_seconds() -> u64 {
 ///     */
 /// }
 /// ```
-/// 
-/// 
+///
+///
 #[derive(Clone)]
 pub struct PaymentGateway {
     pub config: PaymentGatewayConfiguration,
-    pub invoices: Arc<SkipMap<String,Invoice>>,
+    pub invoices: Arc<SkipMap<String, Invoice>>,
 }
 
 #[derive(Clone)]
@@ -175,7 +171,7 @@ pub struct PaymentGatewayConfiguration {
 #[derive(Clone)]
 pub enum Reflector {
     /// A sender from async-std
-    Sender(Sender<(String,Invoice)>),
+    Sender(Sender<(String, Invoice)>),
 }
 
 // Type alias for the underlying Web3 type.
@@ -187,9 +183,9 @@ pub type AsyncCallback =
 
 impl PaymentGateway {
     /// ## Creates a new payment gateway.
-    /// 
+    ///
     /// To minimize the amount of arguments, the configuration is passed as a struct.
-    /// 
+    ///
     /// The configuration struct contains the following fields:
     /// - `provider`: the provider for the EVM network. This is used to communicate with the EVM network.
     /// - `treasury_address`: the address of the treasury for all paid invoices, on this EVM network.
@@ -220,7 +216,7 @@ impl PaymentGateway {
     ///         treasury_address: "0xdac17f958d2ee523a2206206994597c13d831ec7".parse::<Address>().unwrap(),
     ///         min_confirmations: 10,
     ///         reflector,
-    ///         invoice_delay_seconds: 10,
+    ///         poller_delay_seconds: 10,
     ///         transaction_type,
     ///         eip1559_estimation_retry_max: 3,
     ///         eip1559_estimation_retry_delay_seconds: 10,   
@@ -240,7 +236,11 @@ impl PaymentGateway {
     /// and the second part is the invoice. The key is a SHA256 hash of the
     /// creation timestamp and the recipient address.
     pub async fn get_all_invoices(&self) -> Result<Vec<(String, Invoice)>, GatewayError> {
-        let invoices = self.invoices.iter().map(|entry| (entry.key().clone(), entry.value().clone())).collect();
+        let invoices = self
+            .invoices
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect();
         Ok(invoices)
     }
 

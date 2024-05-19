@@ -1,9 +1,8 @@
-
-use ethers::contract::ContractError;
-use ethers::providers::{Http, Provider};
 use crate::gateway::Reflector::Sender;
 use crate::gateway::{get_unix_time_seconds, PaymentGateway};
 use crate::invoice::Invoice;
+use ethers::contract::ContractError;
+use ethers::providers::{Http, Provider};
 
 use super::erc20::ERC20Token;
 use super::transfers::gas_transfers::transfer_gas_to_treasury;
@@ -40,18 +39,21 @@ async fn check_and_process(provider: Provider<Http>, invoice: &Invoice) -> bool 
     match &invoice.token_address {
         Some(address) => {
             let token = ERC20Token::new(provider, *address);
-            check_if_token_received(token, invoice).await.unwrap_or_else(|error| {
+            check_if_token_received(token, invoice)
+                .await
+                .unwrap_or_else(|error| {
+                    log::error!("Failed to check balance: {}", error);
+                    false
+                })
+        }
+        None => check_if_native_received(provider, invoice)
+            .await
+            .unwrap_or_else(|error| {
                 log::error!("Failed to check balance: {}", error);
                 false
-            })
-        }
-        None => check_if_native_received(provider, invoice).await.unwrap_or_else(|error| {
-            log::error!("Failed to check balance: {}", error);
-            false
-        }),
+            }),
     }
 }
-
 
 async fn transfer_to_treasury(
     gateway: PaymentGateway,
@@ -102,7 +104,7 @@ pub async fn poll_payments(gateway: PaymentGateway) {
                         match gateway.config.reflector {
                             Sender(ref sender) => {
                                 // Attempt to send the PriceData through the channel.
-                                if let Err(error) = sender.send((key,invoice)).await {
+                                if let Err(error) = sender.send((key, invoice)).await {
                                     log::error!("Failed sending data: {}", error);
                                 }
                             }
@@ -130,17 +132,21 @@ pub async fn poll_payments(gateway: PaymentGateway) {
 #[cfg(test)]
 mod tests {
 
-    use ethers::{providers::Provider, types::{Address, U256}};
+    use ethers::{
+        providers::Provider,
+        types::{Address, U256},
+    };
 
     use crate::web3::get_native_balance;
 
-
     #[tokio::test]
     async fn valid_balance() {
-        let provider=Provider::try_from("https://bsc-dataseed1.binance.org/").unwrap();
+        let provider = Provider::try_from("https://bsc-dataseed1.binance.org/").unwrap();
         let balance = get_native_balance(
             &provider,
-            &"0x2170ed0880ac9a755fd29b2688956bd959f933f8".parse::<Address>().unwrap(),
+            &"0x2170ed0880ac9a755fd29b2688956bd959f933f8"
+                .parse::<Address>()
+                .unwrap(),
         )
         .await
         .unwrap();
