@@ -76,6 +76,12 @@ pub async fn poll_payments(gateway: PaymentGateway) {
                         gateway.invoices.remove(&key);
                         continue;
                     }
+
+                    if invoice.paid_at_timestamp > 0 {
+                        // Skip the invoice if it has already been paid
+                        continue;
+                    }
+
                     // Check if the invoice was paid
                     let check_result =
                         check_and_process(gateway.config.provider.clone(), &invoice).await;
@@ -94,11 +100,12 @@ pub async fn poll_payments(gateway: PaymentGateway) {
                                 );
                             }
                         }
-
-                        // If the transfer_to_treasury invoice was paid, delete it, stand in queue for the
-                        // lock to the callback function.
-                        gateway.invoices.remove(&key);
+                        // Set the invoice as paid so that it will not be ran again
                         invoice.paid_at_timestamp = get_unix_time_seconds();
+
+                        // Update the invoice in the hashmap
+                        gateway.invoices.insert(key.clone(), invoice.clone());
+
                         match gateway.config.reflector {
                             Sender(ref sender) => {
                                 // Attempt to send the PriceData through the channel.
