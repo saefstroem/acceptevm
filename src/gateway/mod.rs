@@ -82,11 +82,12 @@ pub fn get_unix_time_seconds() -> u64 {
 ///     let provider = Provider::try_from("https://bsc-dataseed1.binance.org/").expect("Invalid RPC URL");
 ///     let gateway = PaymentGateway::new(
 ///         PaymentGatewayConfiguration{
+///             native_currency_name:"ETH".to_string(),
 ///             provider,
 ///             treasury_address: "0xdac17f958d2ee523a2206206994597c13d831ec7".parse::<Address>().unwrap(),
 ///             min_confirmations: 10,
 ///             reflector,
-///             invoice_delay_seconds: 10,
+///             poller_delay_seconds: 10,
 ///             transaction_type,
 ///             eip1559_estimation_retry_max: 3,
 ///             eip1559_estimation_retry_delay_seconds: 10,   
@@ -146,6 +147,7 @@ pub enum TransactionType {
 /// - `eip1559_estimation_retry_delay_seconds`: the delay between each retry in seconds.
 #[derive(Clone)]
 pub struct PaymentGatewayConfiguration {
+    pub native_currency_name: String,
     pub provider: Provider<Http>,
     pub treasury_address: Address,
     pub poller_delay_seconds: u64,
@@ -216,11 +218,12 @@ impl PaymentGateway {
     /// let provider = Provider::try_from("https://bsc-dataseed1.binance.org/").expect("Invalid RPC URL");
     /// let gateway = PaymentGateway::new(
     ///     PaymentGatewayConfiguration{
+    ///         native_currency_name:"ETH".to_string(),
     ///         provider,
     ///         treasury_address: "0xdac17f958d2ee523a2206206994597c13d831ec7".parse::<Address>().unwrap(),
     ///         min_confirmations: 10,
     ///         reflector,
-    ///         invoice_delay_seconds: 10,
+    ///         poller_delay_seconds: 10,
     ///         transaction_type,
     ///         eip1559_estimation_retry_max: 3,
     ///         eip1559_estimation_retry_delay_seconds: 10,   
