@@ -20,6 +20,7 @@ mod tests {
 
         PaymentGateway::new(
             PaymentGatewayConfiguration{
+                native_currency_name:"ETH".to_string(),
                 provider,
                 treasury_address: "0xdac17f958d2ee523a2206206994597c13d831ec7".parse::<Address>().unwrap(),
                 min_confirmations: 10,
