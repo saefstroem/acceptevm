@@ -68,11 +68,7 @@ impl InvoicePoller {
                                     invoice.hash = Some(receipt);
                                     invoice.paid_at_timestamp = get_unix_time_seconds();
 
-                                    self.gateway
-                                        .invoices
-                                        .write()
-                                        .await
-                                        .insert(key.clone(), invoice.clone());
+                                    self.gateway.invoices.write().await.remove(&key);
 
                                     if let Err(error) =
                                         self.gateway.config.sender.send((key, invoice))

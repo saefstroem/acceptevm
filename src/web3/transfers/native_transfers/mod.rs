@@ -11,8 +11,9 @@ use crate::web3::result::Result;
 
 /// Transfers the native token balance from a paid invoice's wallet to the treasury.
 ///
-/// Uses alloy's built-in gas estimation. The provider automatically handles
-/// EIP-1559 vs legacy transaction types based on the network.
+/// Tries EIP-1559 fee estimation first. If the network does not support it,
+/// falls back to legacy gas pricing. This ensures compatibility with all
+/// EVM-compatible networks.
 pub async fn transfer_native_to_treasury(
     gateway: PaymentGateway,
     invoice: &Invoice,
@@ -36,21 +37,40 @@ pub async fn transfer_native_to_treasury(
         .to(gateway.config.treasury_address)
         .value(U256::ZERO);
 
-    let gas_estimate = provider.estimate_gas(estimation_tx).await?;
-    let gas_price = provider.get_gas_price().await?;
+    let gas_limit = provider.estimate_gas(estimation_tx).await?;
 
-    let max_gas_cost = U256::from(gas_estimate) * U256::from(gas_price);
-    let value = balance.saturating_sub(max_gas_cost);
+    // Try EIP-1559 first, fall back to legacy gas price
+    let (max_gas_cost, tx) = match provider.estimate_eip1559_fees().await {
+        Ok(eip1559) => {
+            let cost = U256::from(gas_limit) * U256::from(eip1559.max_fee_per_gas);
+            let value = balance.saturating_sub(cost);
+            let tx = TransactionRequest::default()
+                .from(invoice.to)
+                .to(gateway.config.treasury_address)
+                .value(value)
+                .gas_limit(gas_limit)
+                .max_fee_per_gas(eip1559.max_fee_per_gas)
+                .max_priority_fee_per_gas(eip1559.max_priority_fee_per_gas);
+            (cost, tx)
+        }
+        Err(e) => {
+            tracing::warn!("EIP-1559 fee estimation failed, falling back to legacy gas price: {}", e);
+            let gas_price = provider.get_gas_price().await?;
+            let cost = U256::from(gas_limit) * U256::from(gas_price);
+            let value = balance.saturating_sub(cost);
+            let tx = TransactionRequest::default()
+                .from(invoice.to)
+                .to(gateway.config.treasury_address)
+                .value(value)
+                .gas_limit(gas_limit)
+                .gas_price(gas_price);
+            (cost, tx)
+        }
+    };
 
-    if value.is_zero() {
+    if balance.saturating_sub(max_gas_cost).is_zero() {
         return Err(TransferError::InsufficientBalance);
     }
-
-    let tx = TransactionRequest::default()
-        .from(invoice.to)
-        .to(gateway.config.treasury_address)
-        .value(value)
-        .gas_limit(gas_estimate);
 
     let pending = provider.send_transaction(tx).await?;
 
