@@ -109,12 +109,13 @@ pub async fn send_native_to_treasury(
     Ok((tx_hash, nonce))
 }
 
-/// Checks whether a previously sent treasury transfer has been confirmed.
+/// Checks whether a previously sent treasury transfer has been confirmed
+/// with at least `min_confirmations` blocks.
 ///
 /// Uses `tokio::time::timeout` with `receipt_timeout_seconds` from config
 /// to prevent hanging on unresponsive RPCs.
 ///
-/// Returns `Ok(true)` if confirmed, `Ok(false)` if not yet mined or timed out.
+/// Returns `Ok(true)` if confirmed with enough depth, `Ok(false)` otherwise.
 pub async fn confirm_treasury_transfer(
     gateway: &PaymentGateway,
     tx_hash_str: &str,
@@ -138,7 +139,56 @@ pub async fn confirm_treasury_transfer(
     .await;
 
     match receipt_result {
-        Ok(Ok(Some(_receipt))) => Ok(true),
+        Ok(Ok(Some(receipt))) => {
+            let tx_block = match receipt.block_number {
+                Some(block) => block,
+                None => return Ok(false),
+            };
+
+            let latest_block = match tokio::time::timeout(
+                timeout_duration,
+                provider.get_block_number(),
+            )
+            .await
+            {
+                Ok(Ok(block)) => block,
+                Ok(Err(e)) => {
+                    tracing::error!("Error fetching latest block number: {}", e);
+                    return Ok(false);
+                }
+                Err(_) => {
+                    tracing::warn!("Block number fetch timed out");
+                    return Ok(false);
+                }
+            };
+
+            let confirmations = latest_block.saturating_sub(tx_block);
+            if confirmations < gateway.config.min_confirmations {
+                return Ok(false);
+            }
+
+            // Re-fetch receipt to ensure it survived potential reorgs
+            match tokio::time::timeout(
+                timeout_duration,
+                provider.get_transaction_receipt(hash),
+            )
+            .await
+            {
+                Ok(Ok(Some(_))) => Ok(true),
+                Ok(Ok(None)) => {
+                    tracing::warn!("Receipt for {} disappeared after reorg", tx_hash_str);
+                    Ok(false)
+                }
+                Ok(Err(e)) => {
+                    tracing::error!("Error re-fetching receipt for {}: {}", tx_hash_str, e);
+                    Ok(false)
+                }
+                Err(_) => {
+                    tracing::warn!("Receipt re-fetch timed out for {}", tx_hash_str);
+                    Ok(false)
+                }
+            }
+        }
         Ok(Ok(None)) => Ok(false),
         Ok(Err(e)) => {
             tracing::error!("Error fetching receipt for {}: {}", tx_hash_str, e);
