@@ -11,14 +11,10 @@ keywords = ["ethereum", "crypto", "payments", "web3", "alloy"]
 thiserror = "2.0.18"
 serde = { version="1.0.197",features=["derive"] }
 sha2 = "0.10.9"
-uuid = {version="1.22.0",features=["v4"]}
 tokio = {version="1.50.0",features=["full"]}
-reqwest = "0.13.2"
 zeroize = {version="1.8.2",features=["zeroize_derive"]}
 alloy = {version="1.7.3",features=["essentials"]}
 tracing = "0.1.44"
-redb = "3.1.1"
-bitcode = "0.6.9"
 ahash = "0.8.12"
 url = "2"
 k256 = {version="0.13",features=["ecdsa"],default-features=false}
