@@ -20,3 +20,5 @@ tracing = "0.1.44"
 redb = "3.1.1"
 bitcode = "0.6.9"
 ahash = "0.8.12"
+url = "2"
+k256 = {version="0.13",features=["ecdsa"],default-features=false}

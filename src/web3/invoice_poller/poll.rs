@@ -7,16 +7,30 @@ use crate::web3::transfers::native_transfers::transfer_native_to_treasury;
 
 use super::InvoicePoller;
 
-impl<P: Provider + Sync> InvoicePoller<P> {
+impl InvoicePoller {
     /// Checks if enough native currency has been received to cover the invoice.
-    async fn check_invoice(&self, invoice: &Invoice) -> Result<bool> {
-        let balance = self.provider.get_balance(invoice.to).await?;
+    async fn check_invoice(&self, provider: &impl Provider, invoice: &Invoice) -> Result<bool> {
+        let balance = provider.get_balance(invoice.to).await?;
         Ok(balance >= invoice.amount)
     }
 
-    /// Runs the polling loop, checking all pending invoices on each iteration.
+    /// Runs the polling loop. Each cycle picks the next RPC URL via round-robin.
     pub(crate) async fn poll(&self) {
         loop {
+            let rpc_url = self.gateway.next_rpc_url();
+            let url = match rpc_url.parse() {
+                Ok(url) => url,
+                Err(error) => {
+                    tracing::error!("Invalid RPC URL '{}': {}", rpc_url, error);
+                    tokio::time::sleep(std::time::Duration::from_secs(
+                        self.gateway.config.poller_delay_seconds,
+                    ))
+                    .await;
+                    continue;
+                }
+            };
+            let provider = ProviderBuilder::new().connect_http(url);
+
             tracing::info!(
                 "Pending invoices: {:?}",
                 self.gateway.invoices.read().await.len()
@@ -33,13 +47,13 @@ impl<P: Provider + Sync> InvoicePoller<P> {
                             continue;
                         }
 
-                        let is_paid =
-                            self.check_invoice(&invoice)
-                                .await
-                                .unwrap_or_else(|error| {
-                                    tracing::error!("Failed to check balance: {}", error);
-                                    false
-                                });
+                        let is_paid = match self.check_invoice(&provider, &invoice).await {
+                            Ok(paid) => paid,
+                            Err(error) => {
+                                tracing::error!("Failed to check balance: {}", error);
+                                continue;
+                            }
+                        };
 
                         if is_paid {
                             tracing::info!("Starting transfer to treasury");
@@ -97,8 +111,6 @@ impl<P: Provider + Sync> InvoicePoller<P> {
 /// Creates an `InvoicePoller` and starts the polling loop.
 pub async fn poll_payments(gateway: PaymentGateway) {
     tracing::info!("Starting polling payments");
-    let provider = ProviderBuilder::new()
-        .connect_http(gateway.config.rpc_url.parse().expect("Invalid RPC URL"));
-    let poller = InvoicePoller::new(provider, gateway);
+    let poller = InvoicePoller::new(gateway);
     poller.poll().await;
 }

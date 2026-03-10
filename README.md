@@ -9,7 +9,7 @@ A lightweight Rust library for accepting native cryptocurrency payments on any E
 * Automatic fund sweeping to your treasury address.
 * Configurable polling interval and confirmation requirements.
 * Paid invoices delivered via tokio mpsc channel for flexible handling.
-* Customizable RPC URL for any EVM-compatible network.
+* Round-robin RPC URL balancing across multiple providers.
 
 ## Why acceptevm?
 
@@ -36,21 +36,22 @@ use acceptevm::gateway::{
 };
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a channel to receive paid invoices
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
 
     // Configure the payment gateway
     let gateway = PaymentGateway::new(PaymentGatewayConfiguration {
-        native_currency_name: "ETH".to_string(),
-        rpc_url: "https://bsc-dataseed1.binance.org/".to_string(),
+        rpc_urls: vec![
+            "https://bsc-dataseed1.binance.org/".to_string(),
+            "https://bsc-dataseed2.binance.org/".to_string(),
+        ],
         treasury_address: "0xdac17f958d2ee523a2206206994597c13d831ec7"
-            .parse::<Address>()
-            .unwrap(),
+            .parse::<Address>()?,
         min_confirmations: 10,
         sender,
         poller_delay_seconds: 10,
-    });
+    })?;
 
     // Create a new invoice
     let (invoice_id, invoice) = gateway
@@ -59,8 +60,7 @@ async fn main() {
             b"Invoice details".to_vec(),
             3600,
         )
-        .await
-        .unwrap();
+        .await?;
 
     // Start polling for payments
     gateway.poll_payments().await;
@@ -72,14 +72,15 @@ async fn main() {
             println!("Transaction hash: {}", hash);
         }
     }
+
+    Ok(())
 }
 ```
 
 You can also loop through the receiver to continuously process paid invoices in real-time:
 
-```rust
-loop {
-    let (id, paid_invoice) = receiver.recv().await.unwrap();
+```rust,ignore
+while let Some((id, paid_invoice)) = receiver.recv().await {
     println!("Invoice {} paid!", id);
 }
 ```

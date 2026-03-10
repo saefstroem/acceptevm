@@ -3,7 +3,10 @@ mod hash;
 mod result;
 
 use std::{
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -26,18 +29,13 @@ use result::Result;
 /// Wei is a type alias for `U256`, the smallest unit of the native currency.
 pub type Wei = U256;
 
-/// Retrieve the current unix time in milliseconds
-pub fn get_unix_time_millis() -> u128 {
-    let now = SystemTime::now();
-    let duration = now.duration_since(UNIX_EPOCH).unwrap_or_default();
-    duration.as_millis()
-}
-
-/// Retrieve the current unix time in seconds
+/// Retrieve the current unix time in seconds.
 pub fn get_unix_time_seconds() -> u64 {
     let now = SystemTime::now();
-    let duration = now.duration_since(UNIX_EPOCH).unwrap_or_default();
-    duration.as_secs()
+    match now.duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs(),
+        Err(_) => 0,
+    }
 }
 
 /// ## AcceptEVM
@@ -66,52 +64,52 @@ pub fn get_unix_time_seconds() -> u64 {
 /// use acceptevm::gateway::{PaymentGateway, PaymentGatewayConfiguration, Address, Wei};
 ///
 /// #[tokio::main]
-/// async fn main() {
+/// async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 ///     let (sender, _receiver) = tokio::sync::mpsc::unbounded_channel();
 ///     let gateway = PaymentGateway::new(
 ///         PaymentGatewayConfiguration {
-///             native_currency_name: "ETH".to_string(),
-///             rpc_url: "https://bsc-dataseed1.binance.org/".to_string(),
+///             rpc_urls: vec![
+///                 "https://bsc-dataseed1.binance.org/".to_string(),
+///                 "https://bsc-dataseed2.binance.org/".to_string(),
+///             ],
 ///             treasury_address: "0xdac17f958d2ee523a2206206994597c13d831ec7"
-///                 .parse::<Address>()
-///                 .unwrap(),
+///                 .parse::<Address>()?,
 ///             min_confirmations: 10,
 ///             sender,
 ///             poller_delay_seconds: 10,
 ///         },
-///     );
+///     )?;
 ///
 ///     // Add new invoice
 ///     let (invoice_id, invoice) = gateway
 ///         .new_invoice(Wei::from(100), b"Invoice details".to_vec(), 3600)
-///         .await
-///         .unwrap();
+///         .await?;
 ///
 ///     // Get the invoice from the gateway
-///     let invoice = gateway.get_invoice(&invoice_id).await.unwrap();
+///     let invoice = gateway.get_invoice(&invoice_id).await?;
 ///
 ///     gateway.poll_payments().await;
 ///     // Continuously receive the paid invoices via the _receiver.
+///     Ok(())
 /// }
 /// ```
 #[derive(Clone)]
 pub struct PaymentGateway {
     pub config: PaymentGatewayConfiguration,
     pub invoices: Arc<RwLock<AHashMap<String, Invoice>>>,
+    rpc_index: Arc<AtomicUsize>,
 }
 
 /// ## PaymentGatewayConfiguration
 ///
-/// - `native_currency_name`: the name of the native currency (e.g., "ETH", "BNB").
-/// - `rpc_url`: the URL of the RPC provider for the EVM network.
+/// - `rpc_urls`: a list of RPC provider URLs. Requests are distributed across them using round-robin.
 /// - `treasury_address`: the address of the treasury for all paid invoices.
 /// - `min_confirmations`: the minimum amount of confirmations required before considering a transaction confirmed.
 /// - `sender`: an `UnboundedSender` from a tokio mpsc channel to receive paid invoices.
 /// - `poller_delay_seconds`: how long to wait between checking invoices. This prevents potential rate limits.
 #[derive(Clone)]
 pub struct PaymentGatewayConfiguration {
-    pub native_currency_name: String,
-    pub rpc_url: String,
+    pub rpc_urls: Vec<String>,
     pub treasury_address: Address,
     pub poller_delay_seconds: u64,
     pub sender: UnboundedSender<(String, Invoice)>,
@@ -121,33 +119,46 @@ pub struct PaymentGatewayConfiguration {
 impl PaymentGateway {
     /// Creates a new payment gateway.
     ///
+    /// Returns an error if `rpc_urls` is empty.
+    ///
     /// Example:
     /// ```rust
     /// use acceptevm::gateway::{PaymentGateway, PaymentGatewayConfiguration, Address};
     ///
+    /// # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     /// let (sender, _receiver) = tokio::sync::mpsc::unbounded_channel();
     /// let gateway = PaymentGateway::new(
     ///     PaymentGatewayConfiguration {
-    ///         native_currency_name: "ETH".to_string(),
-    ///         rpc_url: "https://bsc-dataseed1.binance.org/".to_string(),
+    ///         rpc_urls: vec!["https://bsc-dataseed1.binance.org/".to_string()],
     ///         treasury_address: "0xdac17f958d2ee523a2206206994597c13d831ec7"
-    ///             .parse::<Address>()
-    ///             .unwrap(),
+    ///             .parse::<Address>()?,
     ///         min_confirmations: 10,
     ///         sender,
     ///         poller_delay_seconds: 10,
     ///     },
-    /// );
+    /// )?;
+    /// # Ok(())
+    /// # }
     /// ```
-    pub fn new(configuration: PaymentGatewayConfiguration) -> PaymentGateway {
-        PaymentGateway {
+    pub fn new(configuration: PaymentGatewayConfiguration) -> Result<PaymentGateway> {
+        if configuration.rpc_urls.is_empty() {
+            return Err(GatewayError::NoRpcUrls);
+        }
+        Ok(PaymentGateway {
             config: configuration,
             invoices: Arc::new(RwLock::new(AHashMap::new())),
-        }
+            rpc_index: Arc::new(AtomicUsize::new(0)),
+        })
+    }
+
+    /// Returns the next RPC URL using round-robin selection.
+    pub fn next_rpc_url(&self) -> &str {
+        let idx = self.rpc_index.fetch_add(1, Ordering::Relaxed) % self.config.rpc_urls.len();
+        &self.config.rpc_urls[idx]
     }
 
     /// Retrieves all invoices as a list of `(id, invoice)` tuples.
-    /// The key is a SHA256 hash of the creation timestamp and the recipient address.
+    /// The key is a SHA256 hash of the recipient address.
     pub async fn get_all_invoices(&self) -> Result<Vec<(String, Invoice)>> {
         let invoices = self
             .invoices

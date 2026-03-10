@@ -1,19 +1,17 @@
 mod poll;
 
-use alloy::providers::Provider;
-
 use crate::gateway::PaymentGateway;
 
 pub use poll::poll_payments;
 
-/// Periodically checks invoices for incoming payments using a read-only provider.
-pub(crate) struct InvoicePoller<P> {
-    pub(crate) provider: P,
+/// Periodically checks invoices for incoming payments.
+/// Each poll cycle uses the next RPC URL via round-robin.
+pub(crate) struct InvoicePoller {
     pub(crate) gateway: PaymentGateway,
 }
 
-impl<P: Provider + Sync> InvoicePoller<P> {
-    pub(crate) fn new(provider: P, gateway: PaymentGateway) -> Self {
-        Self { provider, gateway }
+impl InvoicePoller {
+    pub(crate) fn new(gateway: PaymentGateway) -> Self {
+        Self { gateway }
     }
 }

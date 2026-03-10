@@ -9,6 +9,7 @@ dependencies = [
  "ahash",
  "alloy",
  "bitcode",
+ "k256",
  "redb",
  "reqwest 0.13.2",
  "serde",
@@ -16,6 +17,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "url",
  "uuid",
  "zeroize",
 ]

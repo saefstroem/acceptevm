@@ -18,6 +18,8 @@ pub enum GatewayError {
     Serialize,
     #[error("Could not delete from database")]
     NoDelete,
+    #[error("No RPC URLs provided")]
+    NoRpcUrls,
     #[error("Transfer error: {0}")]
     Transfer(#[from] TransferError),
 }
