@@ -38,11 +38,6 @@ impl InvoicePoller {
             match self.gateway.get_all_invoices().await {
                 Ok(all) => {
                     for (key, mut invoice) in all {
-                        if get_unix_time_seconds() > invoice.expires {
-                            self.gateway.invoices.write().await.remove(&key);
-                            continue;
-                        }
-
                         if invoice.paid_at_timestamp > 0 {
                             continue;
                         }
@@ -55,6 +50,12 @@ impl InvoicePoller {
                             }
                         };
 
+                        // Only remove expired invoices that have not been paid
+                        if !is_paid && get_unix_time_seconds() > invoice.expires {
+                            self.gateway.invoices.write().await.remove(&key);
+                            continue;
+                        }
+
                         if is_paid {
                             tracing::info!("Starting transfer to treasury");
                             match transfer_native_to_treasury(
@@ -65,6 +66,19 @@ impl InvoicePoller {
                             {
                                 Ok(receipt) => {
                                     invoice.hash = Some(receipt);
+                                    invoice.paid_at_timestamp = get_unix_time_seconds();
+
+                                    self.gateway
+                                        .invoices
+                                        .write()
+                                        .await
+                                        .insert(key.clone(), invoice.clone());
+
+                                    if let Err(error) =
+                                        self.gateway.config.sender.send((key, invoice))
+                                    {
+                                        tracing::error!("Failed sending data: {}", error);
+                                    }
                                 }
                                 Err(error) => {
                                     tracing::error!(
@@ -72,19 +86,6 @@ impl InvoicePoller {
                                         error
                                     );
                                 }
-                            }
-                            invoice.paid_at_timestamp = get_unix_time_seconds();
-
-                            self.gateway
-                                .invoices
-                                .write()
-                                .await
-                                .insert(key.clone(), invoice.clone());
-
-                            if let Err(error) =
-                                self.gateway.config.sender.send((key, invoice))
-                            {
-                                tracing::error!("Failed sending data: {}", error);
                             }
                         }
                         tokio::time::sleep(std::time::Duration::from_secs(
