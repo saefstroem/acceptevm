@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::web3::error::TransferError;
+
 #[derive(Error, Debug)]
 pub enum GatewayError {
     #[error("No matches found")]
@@ -16,4 +18,6 @@ pub enum GatewayError {
     Serialize,
     #[error("Could not delete from database")]
     NoDelete,
+    #[error("Transfer error: {0}")]
+    Transfer(#[from] TransferError),
 }

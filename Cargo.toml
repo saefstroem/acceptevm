@@ -1,21 +1,22 @@
 [package]
 name = "acceptevm"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Accept native EVM payments in your application with automatic transfers"
+repository = "https://github.com/saefstroem/acceptevm"
+license = "MIT"
+keywords = ["ethereum", "crypto", "payments", "web3", "alloy"]
 
 [dependencies]
-bincode = "1.3.3"
-thiserror = "1.0.59"
+thiserror = "2.0.18"
 serde = { version="1.0.197",features=["derive"] }
-sha2 = "0.10.8"
-uuid = {version="1.8.0",features=["v4"]}
-tokio = {version="1.37.0",features=["full"]}
-reqwest = "0.12.4"
-log = "0.4.21"
-zeroize = {version="1.7.0",features=["zeroize_derive"]}
-async-std = "1.12.0"
-ethers = "2.0.14"
-serde_json = "1.0.117"
-crossbeam-skiplist = "0.1.3"
+sha2 = "0.10.9"
+uuid = {version="1.22.0",features=["v4"]}
+tokio = {version="1.50.0",features=["full"]}
+reqwest = "0.13.2"
+zeroize = {version="1.8.2",features=["zeroize_derive"]}
+alloy = {version="1.7.3",features=["essentials"]}
+tracing = "0.1.44"
+redb = "3.1.1"
+bitcode = "0.6.9"
+ahash = "0.8.12"
