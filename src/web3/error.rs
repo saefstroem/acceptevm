@@ -14,4 +14,6 @@ pub enum TransferError {
     Transport(#[from] alloy::transports::TransportError),
     #[error("Transaction not confirmed: {0}")]
     PendingTransaction(#[from] alloy::providers::PendingTransactionError),
+    #[error("Invalid transaction hash")]
+    InvalidTxHash,
 }

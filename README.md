@@ -51,6 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         min_confirmations: 10,
         sender,
         poller_delay_seconds: 10,
+        receipt_timeout_seconds: 60,
     })?;
 
     // Create a new invoice

@@ -23,6 +23,7 @@ mod tests {
             min_confirmations: 10,
             sender,
             poller_delay_seconds: 1,
+            receipt_timeout_seconds: 60,
         })?)
     }
 
@@ -110,6 +111,7 @@ mod tests {
         assert!(invoice.expires > 0);
         assert_eq!(invoice.paid_at_timestamp, 0);
         assert!(invoice.hash.is_none());
+        assert!(invoice.nonce.is_none());
         Ok(())
     }
 

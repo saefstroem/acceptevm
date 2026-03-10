@@ -77,6 +77,7 @@ pub fn get_unix_time_seconds() -> u64 {
 ///             min_confirmations: 10,
 ///             sender,
 ///             poller_delay_seconds: 10,
+///             receipt_timeout_seconds: 60,
 ///         },
 ///     )?;
 ///
@@ -107,6 +108,7 @@ pub struct PaymentGateway {
 /// - `min_confirmations`: the minimum amount of confirmations required before considering a transaction confirmed.
 /// - `sender`: an `UnboundedSender` from a tokio mpsc channel to receive paid invoices.
 /// - `poller_delay_seconds`: how long to wait between checking invoices. This prevents potential rate limits.
+/// - `receipt_timeout_seconds`: how long to wait for a transaction receipt before timing out.
 #[derive(Clone)]
 pub struct PaymentGatewayConfiguration {
     pub rpc_urls: Vec<String>,
@@ -114,6 +116,7 @@ pub struct PaymentGatewayConfiguration {
     pub poller_delay_seconds: u64,
     pub sender: UnboundedSender<(String, Invoice)>,
     pub min_confirmations: u64,
+    pub receipt_timeout_seconds: u64,
 }
 
 impl PaymentGateway {
@@ -135,6 +138,7 @@ impl PaymentGateway {
     ///         min_confirmations: 10,
     ///         sender,
     ///         poller_delay_seconds: 10,
+    ///         receipt_timeout_seconds: 60,
     ///     },
     /// )?;
     /// # Ok(())
@@ -212,6 +216,7 @@ impl PaymentGateway {
             paid_at_timestamp: 0,
             expires: get_unix_time_seconds() + expires_in_seconds,
             hash: None,
+            nonce: None,
         };
 
         let invoice_id = hash_now(signer.address().0.as_slice());

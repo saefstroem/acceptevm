@@ -39,6 +39,8 @@ pub struct Invoice {
     pub expires: u64,
     /// Timestamp at which the invoice was paid
     pub paid_at_timestamp: u64,
-    /// Transaction hash of the payment transaction
+    /// Transaction hash of the treasury transfer
     pub hash: Option<String>,
+    /// Nonce used for the treasury transfer (for replacement txs)
+    pub nonce: Option<u64>,
 }
