@@ -228,3 +228,46 @@ pub async fn confirm_treasury_transfer(
 async fn timed<F: std::future::Future>(timeout: &std::time::Duration, fut: F) -> Option<F::Output> {
     tokio::time::timeout(*timeout, fut).await.ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bump_fee_ten_percent_increase() {
+        assert_eq!(bump_fee(1000), 1100);
+    }
+
+    #[test]
+    fn bump_fee_zero_becomes_one() {
+        // The implementation guarantees the bumped fee is always strictly
+        // greater than the original, so bump_fee(0) == 1.
+        assert_eq!(bump_fee(0), 1);
+    }
+
+    #[test]
+    fn bump_fee_one_gwei() {
+        let one_gwei: u128 = 1_000_000_000;
+        // 1_000_000_000 * 11 / 10 = 1_100_000_000
+        assert_eq!(bump_fee(one_gwei), 1_100_000_000);
+    }
+
+    #[test]
+    fn bump_fee_large_value_no_overflow() {
+        // u128::MAX / 11 is still representable after the multiply
+        let val: u128 = u128::MAX / 20;
+        let bumped = bump_fee(val);
+        assert!(bumped > val, "bumped fee must be larger than original");
+    }
+
+    #[test]
+    fn bump_fee_idempotent_numerics() {
+        // bump_fee uses ceiling division: (fee*11 + 9) / 10
+        // bump_fee(10)  = (110 + 9) / 10 = 119 / 10 = 11
+        // bump_fee(11)  = (121 + 9) / 10 = 130 / 10 = 13
+        let first = bump_fee(10);
+        let second = bump_fee(first);
+        assert_eq!(first, 11);
+        assert_eq!(second, 13);
+    }
+}

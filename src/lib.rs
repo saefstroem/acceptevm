@@ -3,6 +3,12 @@ pub mod invoice;
 mod web3;
 
 #[cfg(test)]
+mod test_utils;
+
+#[cfg(test)]
+mod integration_tests;
+
+#[cfg(test)]
 mod tests {
     use crate::{
         gateway::{
