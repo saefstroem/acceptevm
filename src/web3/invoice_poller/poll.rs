@@ -3,151 +3,140 @@ use alloy::providers::{Provider, ProviderBuilder};
 use crate::gateway::{get_unix_time_seconds, PaymentGateway};
 use crate::invoice::Invoice;
 use crate::web3::result::Result;
-use crate::web3::transfers::native_transfers::{confirm_treasury_transfer, send_native_to_treasury};
+use crate::web3::transfers::native_transfers::{
+    confirm_treasury_transfer, send_native_to_treasury,
+};
 
 use super::InvoicePoller;
 
 impl InvoicePoller {
-    /// Checks if enough native currency has been received to cover the invoice.
     async fn check_invoice(&self, provider: &impl Provider, invoice: &Invoice) -> Result<bool> {
-        let balance = provider.get_balance(invoice.to).await?;
-        Ok(balance >= invoice.amount)
+        Ok(provider.get_balance(invoice.to).await? >= invoice.amount)
     }
 
-    /// Runs the polling loop. Each cycle picks the next RPC URL via round-robin.
     pub(crate) async fn poll(&self) {
         loop {
-            let rpc_url = self.gateway.next_rpc_url();
-            let url = match rpc_url.parse() {
-                Ok(url) => url,
-                Err(error) => {
-                    tracing::error!("Invalid RPC URL '{}': {}", rpc_url, error);
-                    tokio::time::sleep(std::time::Duration::from_secs(
-                        self.gateway.config.poller_delay_seconds,
-                    ))
-                    .await;
-                    continue;
-                }
-            };
-            let provider = ProviderBuilder::new().connect_http(url);
-
-            tracing::info!(
-                "Pending invoices: {:?}",
-                self.gateway.invoices.read().await.len()
-            );
-            match self.gateway.get_all_invoices().await {
-                Ok(all) => {
-                    for (key, mut invoice) in all {
-                        if let Some(ref tx_hash) = invoice.hash {
-                            match confirm_treasury_transfer(&self.gateway, tx_hash).await {
-                                Ok(true) => {
-                                    tracing::info!("Treasury transfer confirmed: {}", tx_hash);
-                                    invoice.paid_at_timestamp = get_unix_time_seconds();
-
-                                    self.gateway.invoices.write().await.remove(&key);
-
-                                    if let Err(error) =
-                                        self.gateway.config.sender.send((key, invoice))
-                                    {
-                                        tracing::error!("Failed sending data: {}", error);
-                                    }
-                                }
-                                Ok(false) => {
-                                    tracing::info!(
-                                        "Tx {} not yet confirmed, retrying with bumped fees",
-                                        tx_hash
-                                    );
-                                    match send_native_to_treasury(&self.gateway, &invoice).await {
-                                        Ok((new_hash, nonce)) => {
-                                            invoice.hash = Some(new_hash);
-                                            invoice.nonce = Some(nonce);
-                                            self.gateway
-                                                .invoices
-                                                .write()
-                                                .await
-                                                .insert(key.clone(), invoice);
-                                        }
-                                        Err(error) => {
-                                            tracing::error!(
-                                                "Failed to send replacement tx: {}",
-                                                error
-                                            );
-                                        }
-                                    }
-                                }
-                                Err(error) => {
-                                    tracing::error!(
-                                        "Error checking treasury transfer: {}",
-                                        error
-                                    );
-                                }
-                            }
-                            tokio::time::sleep(std::time::Duration::from_secs(
-                                self.gateway.config.poller_delay_seconds,
-                            ))
-                            .await;
-                            continue;
-                        }
-
-                        let is_paid = match self.check_invoice(&provider, &invoice).await {
-                            Ok(paid) => paid,
-                            Err(error) => {
-                                tracing::error!("Failed to check balance: {}", error);
-                                continue;
-                            }
-                        };
-
-                        // Only remove expired invoices that have not been paid
-                        if !is_paid && get_unix_time_seconds() > invoice.expires {
-                            self.gateway.invoices.write().await.remove(&key);
-                            continue;
-                        }
-
-                        // Paid — send initial treasury transfer
-                        if is_paid {
-                            tracing::info!("Invoice paid, sending to treasury");
-                            match send_native_to_treasury(&self.gateway, &invoice).await {
-                                Ok((hash, nonce)) => {
-                                    invoice.hash = Some(hash);
-                                    invoice.nonce = Some(nonce);
-                                    self.gateway
-                                        .invoices
-                                        .write()
-                                        .await
-                                        .insert(key.clone(), invoice);
-                                }
-                                Err(error) => {
-                                    tracing::error!(
-                                        "Failed to send treasury transfer: {}",
-                                        error
-                                    );
-                                }
-                            }
-                        }
-                        tokio::time::sleep(std::time::Duration::from_secs(
-                            self.gateway.config.poller_delay_seconds,
-                        ))
-                        .await;
-                    }
-                }
-                Err(error) => {
-                    tracing::error!(
-                        "Could not get all invoices, did not callback: {}",
-                        error
-                    );
-                }
-            }
-            tokio::time::sleep(std::time::Duration::from_secs(
-                self.gateway.config.poller_delay_seconds,
-            ))
-            .await;
+            self.poll_cycle().await;
+            self.delay().await;
         }
+    }
+
+    async fn poll_cycle(&self) {
+        let rpc_url = self.gateway.next_rpc_url();
+        let url = match rpc_url.parse() {
+            Ok(url) => url,
+            Err(e) => {
+                tracing::error!("Invalid RPC URL '{rpc_url}': {e}");
+                return;
+            }
+        };
+        let provider = ProviderBuilder::new().connect_http(url);
+
+        tracing::info!("Pending invoices: {}", self.gateway.invoices.read().await.len());
+
+        let all = match self.gateway.get_all_invoices().await {
+            Ok(all) => all,
+            Err(e) => {
+                tracing::error!("Could not get all invoices: {e}");
+                return;
+            }
+        };
+
+        for (key, mut invoice) in all {
+            self.process_invoice(&provider, &key, &mut invoice).await;
+            self.delay().await;
+        }
+    }
+
+    async fn process_invoice(&self, provider: &impl Provider, key: &str, invoice: &mut Invoice) {
+        if invoice.amount.is_zero() {
+            tracing::info!("No charge for invoice, confirming");
+            invoice.paid_at_timestamp = get_unix_time_seconds();
+            self.send_confirmed_invoice(key, invoice.clone()).await;
+            return;
+        }
+
+        if invoice.hash.is_some() {
+            self.handle_pending_tx(key, invoice).await;
+            return;
+        }
+
+        let is_paid = match self.check_invoice(provider, invoice).await {
+            Ok(paid) => paid,
+            Err(e) => {
+                tracing::error!("Failed to check balance: {e}");
+                return;
+            }
+        };
+
+        if !is_paid {
+            if get_unix_time_seconds() > invoice.expires {
+                self.gateway.invoices.write().await.remove(key);
+            }
+            return;
+        }
+
+        tracing::info!("Invoice paid, sending to treasury");
+        self.send_to_treasury(key, invoice).await;
+    }
+
+    async fn handle_pending_tx(&self, key: &str, invoice: &mut Invoice) {
+        let confirmed = match invoice.hash.as_deref() {
+            Some(tx_hash) => confirm_treasury_transfer(&self.gateway, tx_hash).await,
+            None => return,
+        };
+
+        match confirmed {
+            Ok(true) => {
+                tracing::info!(
+                    "Treasury transfer confirmed: {}",
+                    invoice.hash.as_deref().unwrap_or("unknown")
+                );
+                invoice.paid_at_timestamp = get_unix_time_seconds();
+                self.send_confirmed_invoice(key, invoice.clone()).await;
+            }
+            Ok(false) => {
+                tracing::info!(
+                    "Tx {} not yet confirmed, retrying with bumped fees",
+                    invoice.hash.as_deref().unwrap_or("unknown")
+                );
+                self.send_to_treasury(key, invoice).await;
+            }
+            Err(e) => tracing::error!("Error checking treasury transfer: {e}"),
+        }
+    }
+
+    async fn send_to_treasury(&self, key: &str, invoice: &mut Invoice) {
+        match send_native_to_treasury(&self.gateway, invoice).await {
+            Ok((hash, nonce)) => {
+                invoice.hash = Some(hash);
+                invoice.nonce = Some(nonce);
+                self.gateway
+                    .invoices
+                    .write()
+                    .await
+                    .insert(key.to_string(), invoice.clone());
+            }
+            Err(e) => tracing::error!("Failed to send treasury transfer: {e}"),
+        }
+    }
+
+    async fn send_confirmed_invoice(&self, key: &str, invoice: Invoice) {
+        self.gateway.invoices.write().await.remove(key);
+        if let Err(e) = self.gateway.config.sender.send((key.to_string(), invoice)) {
+            tracing::error!("Failed sending data: {e}");
+        }
+    }
+
+    async fn delay(&self) {
+        tokio::time::sleep(std::time::Duration::from_secs(
+            self.gateway.config.poller_delay_seconds,
+        ))
+        .await;
     }
 }
 
-/// Creates an `InvoicePoller` and starts the polling loop.
 pub async fn poll_payments(gateway: PaymentGateway) {
     tracing::info!("Starting polling payments");
-    let poller = InvoicePoller::new(gateway);
-    poller.poll().await;
+    InvoicePoller::new(gateway).poll().await;
 }
