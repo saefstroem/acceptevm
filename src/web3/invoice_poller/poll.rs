@@ -17,6 +17,7 @@ impl InvoicePoller {
     pub(crate) async fn poll(&self) {
         loop {
             self.poll_cycle().await;
+            self.delay().await;
         }
     }
 
