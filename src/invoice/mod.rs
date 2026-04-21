@@ -1,11 +1,11 @@
-use std::ops::{Deref, DerefMut};
 use alloy::primitives::{Address, U256};
 use serde::{Deserialize, Serialize};
+use std::ops::{Deref, DerefMut};
 use zeroize::ZeroizeOnDrop;
 
 /// ## DANGER: Private Key Data is contained in this struct
 /// Zeroed memory on drop
-#[derive(ZeroizeOnDrop, Clone, Deserialize, Serialize,Debug)]
+#[derive(ZeroizeOnDrop, Clone, Deserialize, Serialize, Debug)]
 pub struct ZeroizedVec {
     pub inner: Vec<u8>,
 }
@@ -25,7 +25,7 @@ impl DerefMut for ZeroizedVec {
     }
 }
 
-#[derive(Clone, Deserialize, Serialize,Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct Invoice {
     /// Recipient address
     pub to: Address,

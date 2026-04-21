@@ -1,6 +1,6 @@
-mod web3;
 pub mod gateway;
 pub mod invoice;
+mod web3;
 
 #[cfg(test)]
 mod tests {
@@ -18,8 +18,7 @@ mod tests {
 
         Ok(PaymentGateway::new(PaymentGatewayConfiguration {
             rpc_urls: vec!["https://123.com".to_string()],
-            treasury_address: "0xdac17f958d2ee523a2206206994597c13d831ec7"
-                .parse::<Address>()?,
+            treasury_address: "0xdac17f958d2ee523a2206206994597c13d831ec7".parse::<Address>()?,
             min_confirmations: 10,
             sender,
             poller_delay_seconds: 1,
@@ -119,9 +118,7 @@ mod tests {
     async fn assert_invoice_message_preserved() -> TestResult {
         let gateway = create_gateway()?;
         let msg = b"hello world".to_vec();
-        let (_, invoice) = gateway
-            .new_invoice(U256::ZERO, msg.clone(), 3600)
-            .await?;
+        let (_, invoice) = gateway.new_invoice(U256::ZERO, msg.clone(), 3600).await?;
         assert_eq!(invoice.message, msg);
         Ok(())
     }
@@ -130,9 +127,7 @@ mod tests {
     async fn assert_invoice_amount_preserved() -> TestResult {
         let gateway = create_gateway()?;
         let amount = U256::from(42);
-        let (_, invoice) = gateway
-            .new_invoice(amount, b"test".to_vec(), 3600)
-            .await?;
+        let (_, invoice) = gateway.new_invoice(amount, b"test".to_vec(), 3600).await?;
         assert_eq!(invoice.amount, amount);
         Ok(())
     }

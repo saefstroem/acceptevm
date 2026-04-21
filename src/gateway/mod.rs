@@ -204,7 +204,6 @@ impl PaymentGateway {
         message: Vec<u8>,
         expires_in_seconds: u64,
     ) -> Result<(String, Invoice)> {
-
         let signer = PrivateKeySigner::random();
         let invoice = Invoice {
             to: signer.address(),

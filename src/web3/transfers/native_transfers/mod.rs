@@ -15,7 +15,15 @@ const FEE_BUMP_NUMERATOR: u128 = 11;
 const FEE_BUMP_DENOMINATOR: u128 = 10;
 
 fn bump_fee(fee: u128) -> u128 {
-    fee * FEE_BUMP_NUMERATOR / FEE_BUMP_DENOMINATOR
+    let bumped = fee
+        .saturating_mul(FEE_BUMP_NUMERATOR)
+        .saturating_add(FEE_BUMP_DENOMINATOR - 1)
+        / FEE_BUMP_DENOMINATOR;
+    if bumped <= fee {
+        fee.saturating_add(1)
+    } else {
+        bumped
+    }
 }
 
 /// Sends the full native-token balance from a paid invoice's wallet to the

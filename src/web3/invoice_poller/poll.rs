@@ -17,7 +17,6 @@ impl InvoicePoller {
     pub(crate) async fn poll(&self) {
         loop {
             self.poll_cycle().await;
-            self.delay().await;
         }
     }
 
@@ -32,7 +31,10 @@ impl InvoicePoller {
         };
         let provider = ProviderBuilder::new().connect_http(url);
 
-        tracing::info!("Pending invoices: {}", self.gateway.invoices.read().await.len());
+        tracing::info!(
+            "Pending invoices: {}",
+            self.gateway.invoices.read().await.len()
+        );
 
         let all = match self.gateway.get_all_invoices().await {
             Ok(all) => all,
