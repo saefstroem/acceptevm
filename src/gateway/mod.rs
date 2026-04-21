@@ -204,7 +204,6 @@ impl PaymentGateway {
         message: Vec<u8>,
         expires_in_seconds: u64,
     ) -> Result<(String, Invoice)> {
-
         let signer = PrivateKeySigner::random();
         let invoice = Invoice {
             to: signer.address(),
@@ -225,5 +224,88 @@ impl PaymentGateway {
             .await
             .insert(invoice_id.clone(), invoice.clone());
         Ok((invoice_id, invoice))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc;
+
+    fn make_gateway(urls: Vec<String>) -> PaymentGateway {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        PaymentGateway::new(PaymentGatewayConfiguration {
+            rpc_urls: urls,
+            treasury_address: Address::ZERO,
+            poller_delay_seconds: 0,
+            min_confirmations: 0,
+            receipt_timeout_seconds: 5,
+            sender: tx,
+        })
+        .expect("gateway creation must not fail")
+    }
+
+    #[test]
+    fn no_rpc_urls_returns_error() {
+        let (tx, _rx) = mpsc::unbounded_channel::<(String, crate::invoice::Invoice)>();
+        let result = PaymentGateway::new(PaymentGatewayConfiguration {
+            rpc_urls: vec![],
+            treasury_address: Address::ZERO,
+            poller_delay_seconds: 0,
+            min_confirmations: 0,
+            receipt_timeout_seconds: 5,
+            sender: tx,
+        });
+        assert!(
+            result.is_err(),
+            "empty rpc_urls must return GatewayError::NoRpcUrls"
+        );
+    }
+
+    #[test]
+    fn round_robin_cycles_all_urls() {
+        let gw = make_gateway(vec![
+            "http://a.com".to_string(),
+            "http://b.com".to_string(),
+            "http://c.com".to_string(),
+        ]);
+        assert_eq!(gw.next_rpc_url(), "http://a.com");
+        assert_eq!(gw.next_rpc_url(), "http://b.com");
+        assert_eq!(gw.next_rpc_url(), "http://c.com");
+        // wraps back
+        assert_eq!(gw.next_rpc_url(), "http://a.com");
+    }
+
+    #[test]
+    fn round_robin_single_url_always_returns_same() {
+        let gw = make_gateway(vec!["http://only.com".to_string()]);
+        for _ in 0..5 {
+            assert_eq!(gw.next_rpc_url(), "http://only.com");
+        }
+    }
+
+    #[test]
+    fn get_unix_time_seconds_is_reasonable() {
+        let t = get_unix_time_seconds();
+        // Must be after 2024-01-01 (unix 1704067200) and before year 2100
+        assert!(t > 1_704_067_200, "time must be after 2024-01-01");
+        assert!(t < 4_102_444_800, "time must be before 2100-01-01");
+    }
+
+    #[tokio::test]
+    async fn new_invoice_appears_in_map() {
+        let gw = make_gateway(vec!["http://x.com".to_string()]);
+        assert_eq!(gw.invoices.read().await.len(), 0);
+        gw.new_invoice(U256::from(1u64), vec![], 60)
+            .await
+            .unwrap();
+        assert_eq!(gw.invoices.read().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn get_invoice_not_found() {
+        let gw = make_gateway(vec!["http://x.com".to_string()]);
+        let result = gw.get_invoice("nonexistent").await;
+        assert!(result.is_err());
     }
 }

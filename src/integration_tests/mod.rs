@@ -1,0 +1,12 @@
+mod try_submit_normal;
+mod zero_amount_invoice;
+mod expired_invoice;
+mod insufficient_balance;
+mod overpaid_invoice;
+mod multiple_invoices_concurrent;
+mod fee_bump_replacement;
+mod reorg_detection;
+mod round_robin_rpc;
+mod treasury_address_sweep;
+mod receipt_timeout;
+mod invalid_wallet_key;
