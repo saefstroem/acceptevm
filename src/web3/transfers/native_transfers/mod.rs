@@ -240,8 +240,7 @@ mod tests {
 
     #[test]
     fn bump_fee_zero_becomes_one() {
-        // The implementation guarantees the bumped fee is always strictly
-        // greater than the original, so bump_fee(0) == 1.
+        // For a zero fee, the minimum bumped value is 1, so bump_fee(0) == 1.
         assert_eq!(bump_fee(0), 1);
     }
 
