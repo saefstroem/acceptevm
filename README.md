@@ -23,7 +23,7 @@ To use acceptevm in your project, add the following to your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-acceptevm = "0.0.4"
+acceptevm = "0.0.5"
 ```
 
 ## Usage
